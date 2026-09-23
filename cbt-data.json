@@ -1,0 +1,283 @@
+{
+    "students": [
+        {
+            "id": "ddde2e5403430513",
+            "fullName": "ADEPOJU Timothy Adedeji",
+            "email": "adepojutimothy25@gmail.com",
+            "matricNumber": "2023007387",
+            "department": "Cybersecurity",
+            "active": true,
+            "createdAt": "2026-09-23T21:17:33+02:00"
+        }
+    ],
+    "exams": [
+        {
+            "id": "math101",
+            "code": "MTH 101",
+            "title": "Foundations of Algebra",
+            "description": "Core algebraic reasoning, expressions, equations, and functions.",
+            "duration": 35,
+            "questionCount": 10,
+            "startAt": "2026-09-23T16:51:00.000Z",
+            "endAt": "2026-09-24T01:51:00.000Z",
+            "status": "active",
+            "courseUnit": 3,
+            "session": ""
+        },
+        {
+            "id": "stat201",
+            "code": "STA 201",
+            "title": "Statistics & Probability",
+            "description": "Distributions, sampling, probability rules, and data interpretation.",
+            "duration": 5,
+            "questionCount": 15,
+            "startAt": "2026-09-23T14:21:00.000Z",
+            "endAt": "2026-09-23T23:51:00.000Z",
+            "status": "active",
+            "courseUnit": 3,
+            "session": ""
+        },
+        {
+            "id": "cs105",
+            "code": "CSC 105",
+            "title": "Digital Logic",
+            "description": "Boolean algebra, logic gates, and introductory circuit design.",
+            "duration": 25,
+            "questionCount": 10,
+            "startAt": "2026-09-23T21:51:56+02:00",
+            "endAt": "2026-09-24T06:51:56+02:00",
+            "status": "active",
+            "courseUnit": 3,
+            "session": ""
+        },
+        {
+            "id": "d5fef04adf91bcb6",
+            "code": "STA101",
+            "title": "Descriptive Statistics",
+            "description": "Don't worry",
+            "duration": 10,
+            "questionCount": 20,
+            "startAt": "2026-09-24T09:02:00.000Z",
+            "endAt": "2026-09-24T09:12:00.000Z",
+            "status": "active",
+            "courseUnit": 3,
+            "session": ""
+        }
+    ],
+    "questions": [
+        {
+            "id": "q1",
+            "examId": "math101",
+            "text": "Simplify the expression: 3(2x - 4) + 5.",
+            "options": [
+                "6x - 7",
+                "6x - 12",
+                "6x + 1",
+                "6x - 1"
+            ],
+            "correctOptions": [
+                1
+            ],
+            "type": "single",
+            "topic": "Expressions",
+            "difficulty": "easy",
+            "status": "published"
+        },
+        {
+            "id": "q2",
+            "examId": "math101",
+            "text": "If f(x) = x\u00b2 - 3x + 2, what is f(2)?",
+            "options": [
+                "0",
+                "1",
+                "2",
+                "4"
+            ],
+            "correctOptions": [
+                0
+            ],
+            "type": "single",
+            "topic": "Functions",
+            "difficulty": "easy",
+            "status": "published"
+        },
+        {
+            "id": "q3",
+            "examId": "math101",
+            "text": "Which statement is true for the equation 2x + 6 = 14?",
+            "options": [
+                "x = 3",
+                "x = 4",
+                "x = 5",
+                "x = 6"
+            ],
+            "correctOptions": [
+                1
+            ],
+            "type": "single",
+            "topic": "Equations",
+            "difficulty": "easy",
+            "status": "published"
+        },
+        {
+            "id": "q4",
+            "examId": "math101",
+            "text": "Factorise completely: x\u00b2 - 9.",
+            "options": [
+                "(x - 3)(x + 3)",
+                "(x - 9)(x + 1)",
+                "(x - 3)\u00b2",
+                "x(x - 9)"
+            ],
+            "correctOptions": [
+                0
+            ],
+            "type": "single",
+            "topic": "Factorisation",
+            "difficulty": "medium",
+            "status": "published"
+        },
+        {
+            "id": "q5",
+            "examId": "math101",
+            "text": "A line has a gradient of 2 and passes through (1, 4). What is its y-intercept?",
+            "options": [
+                "1",
+                "2",
+                "3",
+                "4"
+            ],
+            "correctOptions": [
+                0
+            ],
+            "type": "single",
+            "topic": "Coordinate geometry",
+            "difficulty": "medium",
+            "status": "published"
+        }
+    ],
+    "passwords": [
+        {
+            "id": "7a9d5608c282343d",
+            "studentId": "ddde2e5403430513",
+            "examId": "stat201",
+            "passwordHash": "$2y$10$bcji0qFyAbmxdHk/UyrWpeHzlD7YF89V6F9wLO2cu1G7AmIKy6PF2",
+            "createdAt": "2026-09-23T22:31:04+02:00",
+            "expiresAt": "2026-09-24T01:51:00.000Z"
+        },
+        {
+            "id": "efa35be8102543ef",
+            "studentId": "ddde2e5403430513",
+            "examId": "math101",
+            "passwordHash": "$2y$10$JXbz/5VEbh7PWWV3DM3MuexnN/lEP7nj53f5Je1RaKL3RNp9jhsCW",
+            "createdAt": "2026-09-23T23:22:11+02:00",
+            "expiresAt": "2026-09-24T01:51:00.000Z"
+        }
+    ],
+    "sessions": [
+        {
+            "id": "2f2a4936650dc6d5",
+            "studentId": "ddde2e5403430513",
+            "examId": "math101",
+            "startedAt": "2026-09-23T23:22:29+02:00",
+            "endsAt": "2026-09-23T23:57:29+02:00",
+            "answers": {
+                "q1": [
+                    0
+                ],
+                "q2": [
+                    1
+                ],
+                "q3": [
+                    2
+                ],
+                "q4": [
+                    2
+                ],
+                "q5": [
+                    0
+                ]
+            },
+            "flagged": [],
+            "status": "submitted",
+            "submittedAt": "2026-09-23T23:22:59+02:00",
+            "score": 20
+        }
+    ],
+    "results": [
+        {
+            "id": "48442c9a263c8bf1",
+            "sessionId": "2f2a4936650dc6d5",
+            "studentId": "ddde2e5403430513",
+            "examId": "math101",
+            "score": 20,
+            "submittedAt": "2026-09-23T23:22:59+02:00",
+            "status": "submitted",
+            "courseUnit": 3,
+            "grade": "F",
+            "gradePoint": 0,
+            "qualityPoints": 0,
+            "session": ""
+        }
+    ],
+    "loginTokens": [
+        {
+            "token": "9fc451eec00df26d",
+            "studentId": "ddde2e5403430513",
+            "examId": "stat201",
+            "expiresAt": "2026-09-24T05:51:56+02:00"
+        },
+        {
+            "token": "7c5b92483f90e7ad",
+            "studentId": "ddde2e5403430513",
+            "examId": "stat201",
+            "expiresAt": "2026-09-24T01:51:00.000Z"
+        },
+        {
+            "token": "a6bc89f1edd016fd",
+            "studentId": "ddde2e5403430513",
+            "examId": "math101",
+            "expiresAt": "2026-09-24T01:51:00.000Z"
+        }
+    ],
+    "settings": {
+        "gradingScale": [
+            {
+                "minScore": 70,
+                "maxScore": 100,
+                "grade": "A",
+                "gradePoint": 5
+            },
+            {
+                "minScore": 60,
+                "maxScore": 69.99,
+                "grade": "B",
+                "gradePoint": 4
+            },
+            {
+                "minScore": 50,
+                "maxScore": 59.99,
+                "grade": "C",
+                "gradePoint": 3
+            },
+            {
+                "minScore": 45,
+                "maxScore": 49.99,
+                "grade": "D",
+                "gradePoint": 2
+            },
+            {
+                "minScore": 40,
+                "maxScore": 44.99,
+                "grade": "E",
+                "gradePoint": 1
+            },
+            {
+                "minScore": 0,
+                "maxScore": 39.99,
+                "grade": "F",
+                "gradePoint": 0
+            }
+        ]
+    }
+}
