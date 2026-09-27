@@ -1,0 +1,9 @@
+<Files "cbt-data.json">
+    Require all denied
+</Files>
+<Files ".cbt-data.lock">
+    Require all denied
+</Files>
+<Files "expire-sessions.php">
+    Require all denied
+</Files>

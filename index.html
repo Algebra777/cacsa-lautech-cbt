@@ -3,13 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#1b8a5a" />
-  <title>Alge CBT | Computer-Based Testing</title>
-  <link rel="stylesheet" href="styles.css" />
+  <meta name="color-scheme" content="light" />
+  <meta name="theme-color" content="#16774d" />
+  <meta name="description" content="CACSA LAUTECH CBT assessment portal for students and administrators." />
+  <link rel="icon" href="CACSA%20Logo.jpeg" type="image/jpeg" />
+  <title>CACSA LAUTECH CBT | Computer-Based Testing</title>
+  <link rel="stylesheet" href="styles.css?v=20260927-password-toggle" />
 </head>
 <body>
-  <div id="app" class="app-shell"></div>
-  <div id="toast-region" class="toast-region" aria-live="polite"></div>
-  <script src="app.js"></script>
+  <div id="app" class="app-shell"><div class="loading-state" role="status">Loading CACSA LAUTECH CBT...</div></div>
+  <div id="toast-region" class="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
+  <noscript><p class="inline-alert">JavaScript is required to use the CBT portal.</p></noscript>
+  <script src="app.js?v=20260927-password-toggle"></script>
 </body>
 </html>

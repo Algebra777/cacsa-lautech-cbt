@@ -16,10 +16,10 @@
             "code": "MTH 101",
             "title": "Foundations of Algebra",
             "description": "Core algebraic reasoning, expressions, equations, and functions.",
-            "duration": 35,
-            "questionCount": 10,
-            "startAt": "2026-09-23T16:51:00.000Z",
-            "endAt": "2026-09-24T01:51:00.000Z",
+            "duration": 2,
+            "questionCount": 2,
+            "startAt": "2026-09-27T18:26:00+02:00",
+            "endAt": "2026-09-27T22:50:00+02:00",
             "status": "active",
             "courseUnit": 3,
             "session": ""
@@ -31,9 +31,9 @@
             "description": "Distributions, sampling, probability rules, and data interpretation.",
             "duration": 5,
             "questionCount": 15,
-            "startAt": "2026-09-23T14:21:00.000Z",
-            "endAt": "2026-09-23T23:51:00.000Z",
-            "status": "active",
+            "startAt": "2026-09-23T16:21:00+02:00",
+            "endAt": "2026-09-24T01:51:00+02:00",
+            "status": "published",
             "courseUnit": 3,
             "session": ""
         },
@@ -42,10 +42,10 @@
             "code": "CSC 105",
             "title": "Digital Logic",
             "description": "Boolean algebra, logic gates, and introductory circuit design.",
-            "duration": 25,
-            "questionCount": 10,
-            "startAt": "2026-09-23T21:51:56+02:00",
-            "endAt": "2026-09-24T06:51:56+02:00",
+            "duration": 10,
+            "questionCount": 3,
+            "startAt": "2026-09-27T18:24:00+02:00",
+            "endAt": "2026-09-27T22:50:00+02:00",
             "status": "active",
             "courseUnit": 3,
             "session": ""
@@ -57,9 +57,9 @@
             "description": "Don't worry",
             "duration": 10,
             "questionCount": 20,
-            "startAt": "2026-09-24T09:02:00.000Z",
-            "endAt": "2026-09-24T09:12:00.000Z",
-            "status": "active",
+            "startAt": "2026-09-24T11:02:00+02:00",
+            "endAt": "2026-09-24T11:12:00+02:00",
+            "status": "published",
             "courseUnit": 3,
             "session": ""
         }
@@ -154,6 +154,60 @@
             "topic": "Coordinate geometry",
             "difficulty": "medium",
             "status": "published"
+        },
+        {
+            "id": "45290161661665d2",
+            "examId": "cs105",
+            "text": "ahjkvkjvrhahuiuyiy",
+            "options": [
+                "e",
+                "r",
+                "t",
+                "y"
+            ],
+            "correctOptions": [
+                2
+            ],
+            "type": "single",
+            "topic": "",
+            "difficulty": "medium",
+            "status": "published"
+        },
+        {
+            "id": "3da6e45c12633bfa",
+            "examId": "cs105",
+            "text": "adauireuirefhz",
+            "options": [
+                "df",
+                "g",
+                "u",
+                "bn"
+            ],
+            "correctOptions": [
+                1
+            ],
+            "type": "single",
+            "topic": "",
+            "difficulty": "medium",
+            "status": "published"
+        },
+        {
+            "id": "e9d6a8a9ee120fa6",
+            "examId": "cs105",
+            "text": "airouijskgfddas afu",
+            "options": [
+                "gkyiy",
+                "hiyitt",
+                "tyiyit",
+                "h"
+            ],
+            "correctOptions": [
+                3
+            ],
+            "type": "single",
+            "topic": "",
+            "difficulty": "medium",
+            "status": "published"
         }
     ],
     "passwords": [
@@ -172,6 +226,15 @@
             "passwordHash": "$2y$10$JXbz/5VEbh7PWWV3DM3MuexnN/lEP7nj53f5Je1RaKL3RNp9jhsCW",
             "createdAt": "2026-09-23T23:22:11+02:00",
             "expiresAt": "2026-09-24T01:51:00.000Z"
+        },
+        {
+            "id": "3cc9bb23702c61c8",
+            "studentId": "ddde2e5403430513",
+            "examId": "cs105",
+            "passwordHash": "$2y$10$CmU4/YogIkhFOyvieKln9OxzYfRtGkQCOWqBNURvVB8oV2nAQBFOO",
+            "createdAt": "2026-09-27T18:29:44+02:00",
+            "expiresAt": "2026-09-27T22:50:00+02:00",
+            "usedAt": "2026-09-27T18:32:24+02:00"
         }
     ],
     "sessions": [
@@ -202,6 +265,180 @@
             "status": "submitted",
             "submittedAt": "2026-09-23T23:22:59+02:00",
             "score": 20
+        },
+        {
+            "id": "15ca23933829f743",
+            "studentId": "ddde2e5403430513",
+            "examId": "cs105",
+            "passwordId": "9c611e0c13d8e3ec",
+            "accessTokenHash": "bd18b30fdb66cc9c4e7e494131f7b6223e4acfad284d74a4470d7377c6072dfb",
+            "startedAt": "2026-09-26T22:08:55+02:00",
+            "endsAt": "2026-09-26T22:18:55+02:00",
+            "questions": [
+                {
+                    "id": "45290161661665d2",
+                    "examId": "cs105",
+                    "text": "ahjkvkjvrhahuiuyiy",
+                    "options": [
+                        "e",
+                        "r",
+                        "t",
+                        "y"
+                    ],
+                    "correctOptions": [
+                        2
+                    ],
+                    "type": "single",
+                    "topic": "",
+                    "difficulty": "medium",
+                    "status": "published"
+                }
+            ],
+            "answers": {
+                "45290161661665d2": [
+                    2
+                ]
+            },
+            "flagged": [],
+            "integrityEvents": [
+                {
+                    "event": "blur",
+                    "at": "2026-09-26T22:09:26+02:00"
+                },
+                {
+                    "event": "blur",
+                    "at": "2026-09-26T22:09:33+02:00"
+                },
+                {
+                    "event": "hidden",
+                    "at": "2026-09-26T22:09:34+02:00"
+                },
+                {
+                    "event": "hidden",
+                    "at": "2026-09-26T22:11:16+02:00"
+                },
+                {
+                    "event": "blur",
+                    "at": "2026-09-26T22:11:16+02:00"
+                },
+                {
+                    "event": "blur",
+                    "at": "2026-09-26T22:11:47+02:00"
+                },
+                {
+                    "event": "hidden",
+                    "at": "2026-09-26T22:11:47+02:00"
+                },
+                {
+                    "event": "hidden",
+                    "at": "2026-09-26T22:11:49+02:00"
+                },
+                {
+                    "event": "blur",
+                    "at": "2026-09-26T22:11:52+02:00"
+                },
+                {
+                    "event": "hidden",
+                    "at": "2026-09-26T22:11:52+02:00"
+                },
+                {
+                    "event": "blur",
+                    "at": "2026-09-26T22:12:20+02:00"
+                },
+                {
+                    "event": "hidden",
+                    "at": "2026-09-26T22:12:20+02:00"
+                },
+                {
+                    "event": "blur",
+                    "at": "2026-09-26T22:13:24+02:00"
+                },
+                {
+                    "event": "hidden",
+                    "at": "2026-09-26T22:13:24+02:00"
+                }
+            ],
+            "status": "auto_submitted",
+            "submittedAt": "2026-09-26T22:19:28+02:00",
+            "score": 100
+        },
+        {
+            "id": "b374a7963e499f1d",
+            "studentId": "ddde2e5403430513",
+            "examId": "cs105",
+            "passwordId": "3cc9bb23702c61c8",
+            "accessTokenHash": "12ffe9422e7fc45208f3b32eab99b8ade2718fd05a32e0a96ccf349d0efc24a4",
+            "startedAt": "2026-09-27T18:30:29+02:00",
+            "endsAt": "2026-09-27T18:40:29+02:00",
+            "questions": [
+                {
+                    "id": "45290161661665d2",
+                    "examId": "cs105",
+                    "text": "ahjkvkjvrhahuiuyiy",
+                    "options": [
+                        "e",
+                        "r",
+                        "t",
+                        "y"
+                    ],
+                    "correctOptions": [
+                        2
+                    ],
+                    "type": "single",
+                    "topic": "",
+                    "difficulty": "medium",
+                    "status": "published"
+                },
+                {
+                    "id": "3da6e45c12633bfa",
+                    "examId": "cs105",
+                    "text": "adauireuirefhz",
+                    "options": [
+                        "df",
+                        "g",
+                        "u",
+                        "bn"
+                    ],
+                    "correctOptions": [
+                        1
+                    ],
+                    "type": "single",
+                    "topic": "",
+                    "difficulty": "medium",
+                    "status": "published"
+                },
+                {
+                    "id": "e9d6a8a9ee120fa6",
+                    "examId": "cs105",
+                    "text": "airouijskgfddas afu",
+                    "options": [
+                        "gkyiy",
+                        "hiyitt",
+                        "tyiyit",
+                        "h"
+                    ],
+                    "correctOptions": [
+                        3
+                    ],
+                    "type": "single",
+                    "topic": "",
+                    "difficulty": "medium",
+                    "status": "published"
+                }
+            ],
+            "answers": {
+                "45290161661665d2": [
+                    0
+                ],
+                "e9d6a8a9ee120fa6": [
+                    2
+                ]
+            },
+            "flagged": [],
+            "integrityEvents": [],
+            "status": "submitted",
+            "submittedAt": "2026-09-27T18:32:24+02:00",
+            "score": 0
         }
     ],
     "results": [
@@ -218,28 +455,174 @@
             "gradePoint": 0,
             "qualityPoints": 0,
             "session": ""
-        }
-    ],
-    "loginTokens": [
-        {
-            "token": "9fc451eec00df26d",
-            "studentId": "ddde2e5403430513",
-            "examId": "stat201",
-            "expiresAt": "2026-09-24T05:51:56+02:00"
         },
         {
-            "token": "7c5b92483f90e7ad",
+            "id": "6e9f1eb78f1d7af9",
+            "sessionId": "15ca23933829f743",
             "studentId": "ddde2e5403430513",
-            "examId": "stat201",
-            "expiresAt": "2026-09-24T01:51:00.000Z"
+            "examId": "cs105",
+            "score": 100,
+            "submittedAt": "2026-09-26T22:19:28+02:00",
+            "status": "auto_submitted",
+            "questions": [
+                {
+                    "id": "45290161661665d2",
+                    "text": "ahjkvkjvrhahuiuyiy",
+                    "options": [
+                        "e",
+                        "r",
+                        "t",
+                        "y"
+                    ],
+                    "type": "single",
+                    "correctOptions": [
+                        2
+                    ],
+                    "answers": [
+                        2
+                    ],
+                    "isCorrect": true,
+                    "flagged": false
+                }
+            ],
+            "integrityEvents": [
+                {
+                    "event": "blur",
+                    "at": "2026-09-26T22:09:26+02:00"
+                },
+                {
+                    "event": "blur",
+                    "at": "2026-09-26T22:09:33+02:00"
+                },
+                {
+                    "event": "hidden",
+                    "at": "2026-09-26T22:09:34+02:00"
+                },
+                {
+                    "event": "hidden",
+                    "at": "2026-09-26T22:11:16+02:00"
+                },
+                {
+                    "event": "blur",
+                    "at": "2026-09-26T22:11:16+02:00"
+                },
+                {
+                    "event": "blur",
+                    "at": "2026-09-26T22:11:47+02:00"
+                },
+                {
+                    "event": "hidden",
+                    "at": "2026-09-26T22:11:47+02:00"
+                },
+                {
+                    "event": "hidden",
+                    "at": "2026-09-26T22:11:49+02:00"
+                },
+                {
+                    "event": "blur",
+                    "at": "2026-09-26T22:11:52+02:00"
+                },
+                {
+                    "event": "hidden",
+                    "at": "2026-09-26T22:11:52+02:00"
+                },
+                {
+                    "event": "blur",
+                    "at": "2026-09-26T22:12:20+02:00"
+                },
+                {
+                    "event": "hidden",
+                    "at": "2026-09-26T22:12:20+02:00"
+                },
+                {
+                    "event": "blur",
+                    "at": "2026-09-26T22:13:24+02:00"
+                },
+                {
+                    "event": "hidden",
+                    "at": "2026-09-26T22:13:24+02:00"
+                }
+            ],
+            "courseUnit": 3,
+            "grade": "A",
+            "gradePoint": 5,
+            "qualityPoints": 15,
+            "session": ""
         },
         {
-            "token": "a6bc89f1edd016fd",
+            "id": "b425353b2d45e48d",
+            "sessionId": "b374a7963e499f1d",
             "studentId": "ddde2e5403430513",
-            "examId": "math101",
-            "expiresAt": "2026-09-24T01:51:00.000Z"
+            "examId": "cs105",
+            "score": 0,
+            "submittedAt": "2026-09-27T18:32:24+02:00",
+            "status": "submitted",
+            "questions": [
+                {
+                    "id": "45290161661665d2",
+                    "text": "ahjkvkjvrhahuiuyiy",
+                    "options": [
+                        "e",
+                        "r",
+                        "t",
+                        "y"
+                    ],
+                    "type": "single",
+                    "correctOptions": [
+                        2
+                    ],
+                    "answers": [
+                        0
+                    ],
+                    "isCorrect": false,
+                    "flagged": false
+                },
+                {
+                    "id": "3da6e45c12633bfa",
+                    "text": "adauireuirefhz",
+                    "options": [
+                        "df",
+                        "g",
+                        "u",
+                        "bn"
+                    ],
+                    "type": "single",
+                    "correctOptions": [
+                        1
+                    ],
+                    "answers": [],
+                    "isCorrect": false,
+                    "flagged": false
+                },
+                {
+                    "id": "e9d6a8a9ee120fa6",
+                    "text": "airouijskgfddas afu",
+                    "options": [
+                        "gkyiy",
+                        "hiyitt",
+                        "tyiyit",
+                        "h"
+                    ],
+                    "type": "single",
+                    "correctOptions": [
+                        3
+                    ],
+                    "answers": [
+                        2
+                    ],
+                    "isCorrect": false,
+                    "flagged": false
+                }
+            ],
+            "integrityEvents": [],
+            "courseUnit": 3,
+            "grade": "F",
+            "gradePoint": 0,
+            "qualityPoints": 0,
+            "session": ""
         }
     ],
+    "loginTokens": [],
     "settings": {
         "gradingScale": [
             {
@@ -279,5 +662,7 @@
                 "gradePoint": 0
             }
         ]
-    }
+    },
+    "adminSessions": [],
+    "rateLimits": []
 }
