@@ -7,7 +7,18 @@
             "matricNumber": "2023007387",
             "department": "Cybersecurity",
             "active": true,
-            "createdAt": "2026-09-23T21:17:33+02:00"
+            "createdAt": "2026-09-23T21:17:33+02:00",
+            "phoneNumber": ""
+        },
+        {
+            "id": "ff274088dc1cdcf5",
+            "fullName": "Adeogun Oluwafemi",
+            "email": "adeogunsamuel247@gmail.com",
+            "matricNumber": "2023009196",
+            "department": "English and Literary Studies",
+            "active": true,
+            "createdAt": "2026-09-27T22:42:53+02:00",
+            "phoneNumber": ""
         }
     ],
     "exams": [
@@ -44,8 +55,8 @@
             "description": "Boolean algebra, logic gates, and introductory circuit design.",
             "duration": 10,
             "questionCount": 3,
-            "startAt": "2026-09-27T18:24:00+02:00",
-            "endAt": "2026-09-27T22:50:00+02:00",
+            "startAt": "2026-09-27T23:00:00+02:00",
+            "endAt": "2026-09-27T23:50:00+02:00",
             "status": "active",
             "courseUnit": 3,
             "session": ""
@@ -62,6 +73,19 @@
             "status": "published",
             "courseUnit": 3,
             "session": ""
+        },
+        {
+            "id": "4dbc3b9616d3232b",
+            "code": "GST111",
+            "title": "English",
+            "description": "",
+            "duration": 5,
+            "questionCount": 5,
+            "courseUnit": 2,
+            "session": "",
+            "startAt": "2026-09-27T23:05:00+02:00",
+            "endAt": "2026-09-27T23:50:00+02:00",
+            "status": "active"
         }
     ],
     "questions": [
@@ -661,8 +685,419 @@
                 "grade": "F",
                 "gradePoint": 0
             }
-        ]
+        ],
+        "integrityPolicy": {
+            "tab_switch": {
+                "mode": "warn",
+                "lockAfter": 3
+            },
+            "blur": {
+                "mode": "warn",
+                "lockAfter": 3
+            },
+            "context_menu": {
+                "mode": "warn",
+                "lockAfter": 3
+            },
+            "copy": {
+                "mode": "warn",
+                "lockAfter": 3
+            },
+            "paste": {
+                "mode": "warn",
+                "lockAfter": 3
+            },
+            "devtools": {
+                "mode": "warn",
+                "lockAfter": 3
+            }
+        }
     },
-    "adminSessions": [],
-    "rateLimits": []
+    "adminSessions": [
+        {
+            "tokenHash": "35e58ac3ab137d6ffb259f088c61af4b6a2a32d679e440d48f92c0e0f651d70d",
+            "expiresAt": "2026-09-28T21:40:23+02:00",
+            "createdAt": "2026-09-28T20:40:23+02:00",
+            "userId": "bootstrap-superadmin",
+            "email": "adepojutimothy001@gmail.com",
+            "name": "Superadmin",
+            "roleId": "superadmin",
+            "permissions": [
+                "overview",
+                "students",
+                "exams",
+                "questions",
+                "results",
+                "audit",
+                "settings",
+                "roles",
+                "newsletter"
+            ]
+        }
+    ],
+    "rateLimits": [],
+    "auditEvents": [
+        {
+            "id": "f34a9fe7abd349ce",
+            "timestamp": "2026-09-28T00:19:19+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "admin_login",
+            "targetType": "admin_session",
+            "targetId": "649a35dd2a185b2548b8f2027ee299d41edcea3c4d78bd02d16a1204417f724f",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy001@gmail.com"
+            }
+        },
+        {
+            "id": "897bbc08a5daceef",
+            "timestamp": "2026-09-28T00:50:06+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "role_updated",
+            "targetType": "role",
+            "targetId": "academic_coordinator",
+            "ipAddress": "::1",
+            "metadata": {
+                "role": "Academic Coordinator",
+                "permissions": [
+                    "overview",
+                    "students",
+                    "exams",
+                    "questions",
+                    "results",
+                    "audit",
+                    "settings"
+                ]
+            }
+        },
+        {
+            "id": "9113b69704214976",
+            "timestamp": "2026-09-28T01:25:01+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "admin_login",
+            "targetType": "admin_session",
+            "targetId": "cd6138e9871d599687d7728f416c6fddb15b0ea65f071b48799c6e6576a62f12",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy001@gmail.com",
+                "role": "Superadmin"
+            }
+        },
+        {
+            "id": "4b0b44fa23022043",
+            "timestamp": "2026-09-28T01:25:53+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "newsletter_sent",
+            "targetType": "newsletter",
+            "targetId": "fff9b11970798933",
+            "ipAddress": "::1",
+            "metadata": {
+                "subject": "Good of you you you",
+                "recipients": 2,
+                "accepted": 0,
+                "failed": 2
+            }
+        },
+        {
+            "id": "1e3e72431839e341",
+            "timestamp": "2026-09-28T01:26:17+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "newsletter_sent",
+            "targetType": "newsletter",
+            "targetId": "f3aba52c07998de2",
+            "ipAddress": "::1",
+            "metadata": {
+                "subject": "jhgfdd",
+                "recipients": 2,
+                "accepted": 0,
+                "failed": 2
+            }
+        },
+        {
+            "id": "72f91aff0e02228a",
+            "timestamp": "2026-09-28T01:27:22+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "newsletter_subscriber_added",
+            "targetType": "newsletter_subscriber",
+            "targetId": "6e01edaef7b9dda5",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "algebra3110@gmail.com"
+            }
+        },
+        {
+            "id": "6139b82d2b4e81d3",
+            "timestamp": "2026-09-28T01:27:36+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "newsletter_subscriber_unsubscribed",
+            "targetType": "newsletter_subscriber",
+            "targetId": "6e01edaef7b9dda5",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "algebra3110@gmail.com"
+            }
+        },
+        {
+            "id": "706bd984699cdfbf",
+            "timestamp": "2026-09-28T01:32:17+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "role_updated",
+            "targetType": "role",
+            "targetId": "assistant_academic_coordinator",
+            "ipAddress": "::1",
+            "metadata": {
+                "role": "Assistant Academic Coordinator",
+                "permissions": [
+                    "overview",
+                    "students",
+                    "exams",
+                    "questions",
+                    "results",
+                    "newsletter"
+                ]
+            }
+        },
+        {
+            "id": "be593eef9a1c729e",
+            "timestamp": "2026-09-28T01:32:29+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "role_updated",
+            "targetType": "role",
+            "targetId": "academic_coordinator",
+            "ipAddress": "::1",
+            "metadata": {
+                "role": "Academic Coordinator",
+                "permissions": [
+                    "overview",
+                    "students",
+                    "exams",
+                    "questions",
+                    "results",
+                    "audit",
+                    "settings",
+                    "newsletter"
+                ]
+            }
+        },
+        {
+            "id": "2850795cc30fc7bb",
+            "timestamp": "2026-09-28T01:48:29+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "newsletter_sent",
+            "targetType": "newsletter",
+            "targetId": "30bcea94ac657993",
+            "ipAddress": "::1",
+            "metadata": {
+                "subject": "sgyhdfxvs",
+                "recipients": 2,
+                "accepted": 2,
+                "failed": 0
+            }
+        },
+        {
+            "id": "994cf5030454fa21",
+            "timestamp": "2026-09-28T01:54:45+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "newsletter_sent",
+            "targetType": "newsletter",
+            "targetId": "076c752104064b99",
+            "ipAddress": "::1",
+            "metadata": {
+                "subject": "Application for Remote Tech Learning Internship",
+                "recipients": 2,
+                "accepted": 2,
+                "failed": 0
+            }
+        },
+        {
+            "id": "5fa1f2e10fe82c2c",
+            "timestamp": "2026-09-28T02:02:27+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "newsletter_subscriber_deleted",
+            "targetType": "newsletter_subscriber",
+            "targetId": "6e01edaef7b9dda5",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "algebra3110@gmail.com"
+            }
+        },
+        {
+            "id": "3037f252e7e4ea02",
+            "timestamp": "2026-09-28T02:02:34+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "newsletter_subscriber_unsubscribed",
+            "targetType": "newsletter_subscriber",
+            "targetId": "845b528c6ad1e796",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy25@gmail.com"
+            }
+        },
+        {
+            "id": "5194bf145bc37a1d",
+            "timestamp": "2026-09-28T02:05:14+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "newsletter_subscriber_subscribed",
+            "targetType": "newsletter_subscriber",
+            "targetId": "845b528c6ad1e796",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy25@gmail.com"
+            }
+        },
+        {
+            "id": "856b19c827d4faa0",
+            "timestamp": "2026-09-28T02:11:14+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "newsletter_history_cleared",
+            "targetType": "newsletter",
+            "targetId": "history",
+            "ipAddress": "::1",
+            "metadata": {
+                "clearedCount": 4
+            }
+        },
+        {
+            "id": "a9df1fd2e19598b5",
+            "timestamp": "2026-09-28T02:11:24+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "newsletter_subscriber_unsubscribed",
+            "targetType": "newsletter_subscriber",
+            "targetId": "845b528c6ad1e796",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy25@gmail.com"
+            }
+        },
+        {
+            "id": "ebaacc7f7769e86b",
+            "timestamp": "2026-09-28T02:11:26+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "newsletter_subscriber_subscribed",
+            "targetType": "newsletter_subscriber",
+            "targetId": "845b528c6ad1e796",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy25@gmail.com"
+            }
+        },
+        {
+            "id": "4484e7f143e83d58",
+            "timestamp": "2026-09-28T20:40:23+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "admin_login",
+            "targetType": "admin_session",
+            "targetId": "35e58ac3ab137d6ffb259f088c61af4b6a2a32d679e440d48f92c0e0f651d70d",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy001@gmail.com",
+                "role": "Superadmin"
+            }
+        }
+    ],
+    "examFlags": [],
+    "roles": [
+        {
+            "id": "superadmin",
+            "name": "Superadmin",
+            "description": "Full system access and administrator management.",
+            "maxUsers": 1,
+            "systemLocked": true,
+            "permissions": [
+                "overview",
+                "students",
+                "exams",
+                "questions",
+                "results",
+                "audit",
+                "settings",
+                "roles",
+                "newsletter"
+            ]
+        },
+        {
+            "id": "academic_coordinator",
+            "name": "Academic Coordinator",
+            "description": "Manages assessments, questions, students, results, and audit monitoring.",
+            "maxUsers": 2,
+            "systemLocked": false,
+            "permissions": [
+                "overview",
+                "students",
+                "exams",
+                "questions",
+                "results",
+                "audit",
+                "settings",
+                "newsletter"
+            ]
+        },
+        {
+            "id": "assistant_academic_coordinator",
+            "name": "Assistant Academic Coordinator",
+            "description": "Supports student, assessment, question, and results administration.",
+            "maxUsers": 2,
+            "systemLocked": false,
+            "permissions": [
+                "overview",
+                "students",
+                "exams",
+                "questions",
+                "results",
+                "newsletter"
+            ]
+        }
+    ],
+    "adminUsers": [],
+    "adminUserActivity": {
+        "bootstrap-superadmin": {
+            "lastLoginAt": "2026-09-28T20:40:23+02:00"
+        }
+    },
+    "newsletterSubscribers": [
+        {
+            "id": "845b528c6ad1e796",
+            "name": "ADEPOJU Timothy Adedeji",
+            "email": "adepojutimothy25@gmail.com",
+            "studentId": "ddde2e5403430513",
+            "source": "student",
+            "status": "active",
+            "verifiedAt": "2026-09-28T01:22:11+02:00",
+            "subscribedAt": "2026-09-28T01:22:11+02:00",
+            "updatedAt": "2026-09-28T02:11:26+02:00"
+        },
+        {
+            "id": "17b358a33e5f1d11",
+            "name": "Adeogun Oluwafemi",
+            "email": "adeogunsamuel247@gmail.com",
+            "studentId": "ff274088dc1cdcf5",
+            "source": "student",
+            "status": "active",
+            "verifiedAt": "2026-09-28T01:22:11+02:00",
+            "subscribedAt": "2026-09-28T01:22:11+02:00",
+            "updatedAt": "2026-09-28T01:22:11+02:00"
+        }
+    ],
+    "newsletters": [],
+    "pendingAdminRequests": [],
+    "adminProfileOverrides": [],
+    "adminEmailVerifications": []
 }

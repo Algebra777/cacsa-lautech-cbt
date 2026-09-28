@@ -17,12 +17,22 @@ Alge CBT is a PHP and vanilla JavaScript assessment application. The student por
 - Generate a separate access password for each student and assessment.
 - Use Results for submissions and the student's result sheet. The result sheet groups courses by session, shows semester GPA and cumulative CGPA, and can be exported as CSV.
 - Edit grade boundaries and points in Settings. Saved results are recalculated when the grading scale or a course unit changes.
+- Use **Audit log** for a live monitor of in-progress and locked sessions, or the full system audit trail. The monitor refreshes every five seconds; its filters support date range, actor, event type, and course.
+- Use **Roles** (Superadmin only) to assign Academic Coordinator and Assistant Academic Coordinator accounts. The three fixed roles are Superadmin, Academic Coordinator, and Assistant Academic Coordinator; role limits and permitted workspaces for the two coordinator roles can be adjusted without granting access to Roles itself. Administrator passwords are stored as password hashes, and accounts can be disabled or reactivated.
+- Use **Users** (Superadmin only) for the administrator account directory. It shows the protected bootstrap Superadmin and every coordinator account, including role, verification, account status, and last sign-in. Coordinators can be added, assigned a role, disabled, or reactivated there.
+- People who need administrator access can choose **Request an account** from the administrator sign-in page. Their request remains unable to sign in until the Superadmin reviews it in **Pending Approval**, assigns Academic Coordinator or Assistant Academic Coordinator, and Gmail SMTP accepts the approval email. The request endpoint is rate-limited, stores only a password hash, and does not allow requests for the reserved Superadmin account.
+- Use **Newsletter** to manage subscribers and send updates. Every registered student's validated email is automatically stored as an active subscriber, while additional recipients can be added manually. The sender is `cacsalautech001@gmail.com` and delivery uses authenticated Gmail SMTP. To enable it, copy `.env.example` to `.env`, enable 2-Step Verification for that Gmail account, create a Google App Password, and set `CBT_NEWSLETTER_GMAIL_APP_PASSWORD` to it. The `.env` file is ignored by Git and blocked from web access. The application records Gmail SMTP acceptance/failed handoff results; acceptance is not an inbox-delivery receipt.
+- Newsletter messages include standard date, MIME, reply-to, and unsubscribe headers. Recipient mail providers still control spam classification; for the best long-term deliverability, use a verified custom sending domain with SPF, DKIM, and DMARC rather than relying solely on a consumer Gmail address.
 
 ## Student workflow
 
 Students select an available assessment, enter their matric number and issued password, review the duration and question count, then start. The server records the exam deadline. Answers and flags are saved as the student works, and the student confirms manual submission. Results distinguish manual from timed submission.
 
 The question editor includes a mathematics keyboard for powers, roots, fractions, derivatives, integrals, Greek letters, and common operators. For example, `10x^(2)` is previewed as an exponent and rendered for students.
+
+## Exam-integrity signals
+
+While an exam is active, the browser records tab switches, window blur, right-click, copy, paste, and a best-effort DevTools-size signal. Administrators choose whether each signal is logged, warns the student, or locks the session; warning signals default to locking on the third repeat. These are signals for review, not proof of misconduct. A web page cannot reliably detect operating-system screenshots or mobile screenshot gestures, so the application does not claim to detect them.
 
 ## Unattended timeout finalization
 
