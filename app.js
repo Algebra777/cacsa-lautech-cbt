@@ -1,6 +1,7 @@
 const app = document.querySelector('#app');
 const toastRegion = document.querySelector('#toast-region');
-const API_URL = 'api.php?action=';
+const APP_BASE = '/CACSALAUTECHCBT';
+const API_URL = `${APP_BASE}/api.php?action=`;
 const PAGE_SIZE = 10;
 const INTEGRITY_EVENT_TYPES = ['tab_switch', 'blur', 'context_menu', 'copy', 'paste', 'devtools'];
 
@@ -10,10 +11,10 @@ const state = {
   adminUser: readStored('algeAdminUser'),
   studentAccess: readStored('algeStudentSession'),
   attempt: readStored('algeExamAttempt'),
-  exams: [], adminExams: [], students: [], questions: [], results: [],
+  exams: [], adminExams: [], courses: [], academicSessions: [], semesters: [], students: [], questions: [], results: [],
   dashboard: null, settings: null, report: null, review: null, auditMonitor: [], auditEvents: [], roles: [], adminUsers: [], adminApprovals: {pending: [], recent: [], mailConfigured: false}, pendingApprovalCount: 0, account: null, accountTab: 'profile', newsletterSubscribers: [], newsletterStats: null, newsletters: [], newsletterMailConfigured: false,
-  selectedExamId: null, questionIndex: 0, secondsLeft: 0, timerId: null, availabilityRefreshId: null, auditPollId: null, approvalPollId: null, devtoolsTimer: null, integrityLast: {}, saveState: 'saved',
-  loadSerial: 0, route: '', modalTrigger: null,
+  selectedExamId: null, questionIndex: 0, secondsLeft: 0, timerId: null, availabilityRefreshId: null, auditPollId: null, approvalPollId: null, devtoolsTimer: null, integrityLast: {}, saveState: 'saved', sidebarOpen: sessionStorage.getItem('algeSidebarOpen') !== 'false',
+  loadSerial: 0, route: '', modalTrigger: null, passwordResetEmail: sessionStorage.getItem('algeAdminPasswordResetEmail') || '', theme: localStorage.getItem('algeTheme') || 'dark',
   filters: {
     students: {q: '', sort: 'fullName', dir: 'asc', page: 1, status: ''},
     exams: {q: '', sort: 'code', dir: 'asc', page: 1, status: ''},
@@ -24,6 +25,14 @@ const state = {
   },
   meta: {}
 };
+
+function applyTheme(theme) {
+  const dark = theme === 'dark';
+  document.body.classList.toggle('dark-theme', dark);
+  document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#101714' : '#16774d');
+}
+applyTheme(state.theme);
 
 function readStored(key) {
   try { return JSON.parse(sessionStorage.getItem(key) || 'null'); }
@@ -56,6 +65,22 @@ function examStatusMeta(exam) {
 function candidateInitials(name) {
   return String(name || 'Student').trim().split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'S';
 }
+function sidebarIcon(id) {
+  const paths = {
+    overview: '<path d="M3 10.5 10 4l7 6.5v6.2a1.3 1.3 0 0 1-1.3 1.3H4.3A1.3 1.3 0 0 1 3 16.7z"/><path d="M8 18v-5h4v5"/>',
+    students: '<circle cx="7.3" cy="8" r="2.5"/><circle cx="14.8" cy="8.6" r="2"/><path d="M2.8 17c.5-3 2.2-4.5 4.5-4.5s4 1.5 4.5 4.5M12.3 13.1c2.2-.2 3.9 1 4.4 3.3"/>',
+    exams: '<rect x="3" y="4.5" width="14" height="13" rx="2"/><path d="M6 3v3M14 3v3M3 8.5h14M6.5 12h2M11.5 12h2M6.5 15h2"/>',
+    questions: '<path d="M5 3h8l3 3v11H5z"/><path d="M13 3v4h3M7.5 11.5c0-1.2.8-2.1 2.2-2.1 1.2 0 2 .7 2 1.8 0 1.7-2.1 1.6-2.1 3M9.6 15.7h.1"/>',
+    results: '<path d="M4 17V9M9 17V5M14 17v-7"/><path d="M2.5 17.5h14"/>',
+    audit: '<path d="M10 2.8 16 5v4.5c0 4-2.5 6.8-6 8-3.5-1.2-6-4-6-8V5z"/><path d="m7.2 10 1.8 1.8 3.6-3.8"/>',
+    newsletter: '<rect x="2.5" y="5" width="15" height="11" rx="2"/><path d="m3.3 6 6.7 5 6.7-5"/>',
+    roles: '<path d="M10 2.5 12 5l3.2.3.8 3 2 2.4-2 2.4-.8 3-3.2.3-2 2.5-2-2.5-3.2-.3-.8-3-2-2.4 2-2.4.8-3L8 5z"/><circle cx="10" cy="10.5" r="2"/>',
+    users: '<circle cx="10" cy="7" r="3"/><path d="M4.5 17c.7-3.3 2.5-5 5.5-5s4.8 1.7 5.5 5M15.5 5.5h2M16.5 4.5v2"/>',
+    approvals: '<circle cx="10" cy="10" r="7.5"/><path d="M10 5.8v4.5l3 1.8"/>',
+    settings: '<circle cx="10" cy="10" r="2.6"/><path d="M10 2.8v2M10 15.2v2M17.2 10h-2M4.8 10h-2M15.1 4.9l-1.4 1.4M6.3 13.7l-1.4 1.4M15.1 15.1l-1.4-1.4M6.3 6.3 4.9 4.9"/>'
+  };
+  return `<svg class="sidebar-icon" viewBox="0 0 20 20" aria-hidden="true">${paths[id] || paths.overview}</svg>`;
+}
 function saveStateMeta() {
   if (state.saveState === 'saving') return {label: 'Saving...', state: 'saving'};
   if (state.saveState === 'error') return {label: 'Save failed', state: 'error'};
@@ -68,8 +93,12 @@ function setSaveState(value) {
   document.querySelectorAll('.autosave-status').forEach(element => element.dataset.state = meta.state);
 }
 function brand() { return '<div class="brand"><img class="brand-mark" src="CACSA%20Logo.jpeg" alt="CACSA logo"><span>CACSA LAUTECH CBT<small>Assessment centre</small></span></div>'; }
-function passwordInput(id, autocomplete, attributes = '') {
-  return `<span class="password-input"><input id="${esc(id)}" name="password" type="password" autocomplete="${esc(autocomplete)}" ${attributes}><button class="password-toggle" type="button" data-toggle-password="${esc(id)}" aria-label="Show password" aria-pressed="false" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.7"></circle></svg><span class="sr-only">Show password</span></button></span>`;
+function themeToggle() {
+  const isDark = state.theme === 'dark';
+  return `<button class="theme-toggle" type="button" data-action="toggle-theme" aria-label="Switch to ${isDark ? 'light' : 'dark'} theme" title="Switch to ${isDark ? 'light' : 'dark'} theme"><span aria-hidden="true">${isDark ? '☀' : '☾'}</span><span>${isDark ? 'Light' : 'Dark'}</span></button>`;
+}
+function passwordInput(id, autocomplete, attributes = '', name = 'password') {
+  return `<span class="password-input"><input id="${esc(id)}" name="${esc(name)}" type="password" autocomplete="${esc(autocomplete)}" ${attributes}><button class="password-toggle" type="button" data-toggle-password="${esc(id)}" aria-label="Show password" aria-pressed="false" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.7"></circle></svg><span class="sr-only">Show password</span></button></span>`;
 }
 function mathHtml(value) {
   return esc(value).replace(/\r?\n/g, '<br>')
@@ -103,7 +132,7 @@ function query(action, params = {}) {
 }
 async function api(action, options = {}, params = {}) {
   const {admin: requireAdmin = false, ...fetchOptions} = options;
-  const adminAction = requireAdmin || ['admin-logout', 'students', 'students-bulk', 'exam-password', 'questions', 'questions-bulk', 'results', 'result-review', 'settings', 'student-results', 'dashboard', 'audit-monitor', 'audit-events', 'roles', 'admin-users', 'admin-approvals', 'newsletter-subscribers', 'newsletters'].includes(action) || (action === 'exams' && options.method && options.method !== 'GET');
+  const adminAction = requireAdmin || ['admin-logout', 'admin-account', 'students', 'students-bulk', 'exam-password', 'questions', 'questions-bulk', 'results', 'result-review', 'settings', 'student-results', 'dashboard', 'audit-monitor', 'audit-events', 'roles', 'admin-users', 'admin-approvals', 'newsletter-subscribers', 'newsletters', 'courses', 'course-components', 'academic-sessions', 'semesters'].includes(action) || (action === 'exams' && options.method && options.method !== 'GET');
   const headers = {...(options.body ? {'Content-Type': 'application/json'} : {}), ...(adminAction && state.adminToken ? {Authorization: `Bearer ${state.adminToken}`} : {}), ...options.headers};
   let response;
   try { response = await fetch(query(action, params), {...fetchOptions, headers}); }
@@ -134,12 +163,16 @@ function clearAttempt() {
   clearInterval(state.timerId); state.timerId = null;
   clearInterval(state.devtoolsTimer); state.devtoolsTimer = null;
 }
-function currentRoute() { return decodeURIComponent((location.hash || '#student/selection').slice(1)); }
+function currentRoute() {
+  const segments = decodeURIComponent(location.pathname).split('/').filter(Boolean);
+  const routeIndex = segments.findIndex(segment => segment === 'admin' || segment === 'student');
+  return routeIndex >= 0 ? segments.slice(routeIndex).join('/') : 'student/selection';
+}
 function navigate(route) {
   closeModal();
-  const target = `#${route}`;
-  if (location.hash === target) render();
-  else location.hash = target;
+  const target = `${APP_BASE}/${String(route).replace(/^\/+/, '')}`;
+  if (location.pathname === target) render();
+  else { history.pushState(null, '', target); render(); }
 }
 function parts() { return currentRoute().split('/').filter(Boolean); }
 function selectedExam() {
@@ -166,7 +199,7 @@ function loadingPage(admin = false) {
   return `${topbar()}<main class="center-page">${loading}</main>`;
 }
 function topbar() {
-  return `<header class="topbar">${brand()}</header>`;
+  return `<header class="topbar">${brand()}<div class="topbar-actions">${themeToggle()}</div></header>`;
 }
 
 async function render() {
@@ -180,7 +213,9 @@ async function render() {
   if (isAdmin && (!state.adminToken || (state.adminExpiresAt && Date.parse(state.adminExpiresAt) <= Date.now()))) {
     if (state.adminToken) { clearAdmin(); toast('Your admin session ended. Please sign in again.', 'error'); }
     if (route[1] === 'register') { app.innerHTML = adminRequestPage(); return; }
-    if (currentRoute() !== 'admin/login') history.replaceState(null, '', '#admin/login');
+    if (route[1] === 'forgot-password') { app.innerHTML = adminForgotPasswordPage(); return; }
+    if (route[1] === 'reset-password') { app.innerHTML = adminResetPasswordPage(); return; }
+    if (currentRoute() !== 'admin/login') history.replaceState(null, '', `${APP_BASE}/admin/login`);
     app.innerHTML = adminLoginPage();
     return;
   }
@@ -287,6 +322,13 @@ async function resumeAttempt() {
 }
 async function loadAdmin(route) {
   const page = route[1] || 'overview';
+  // Roles can be changed while an administrator is signed in. Refresh the menu
+  // permissions from the server so new workspaces appear without a forced logout.
+  const accountSnapshot = await api('admin-account');
+  if (accountSnapshot.account) {
+    state.adminUser = {...state.adminUser, roleId: accountSnapshot.account.roleId, role: accountSnapshot.account.roleName || state.adminUser?.role, permissions: accountSnapshot.account.permissions || []};
+    saveStored('algeAdminUser', state.adminUser);
+  }
   if (state.adminUser?.roleId === 'superadmin') {
     const summary = await api('admin-approvals', {}, {summary: 'true'});
     state.pendingApprovalCount = numeric(summary.summary?.pending);
@@ -296,14 +338,20 @@ async function loadAdmin(route) {
     const [students, exams] = await Promise.all([api('students', {}, listQuery('students')), api('exams', {admin: true}, {pageSize: 100})]);
     state.students = normalizeList('students', students); state.adminExams = exams.items || [];
   }
-  if (page === 'exams') state.adminExams = normalizeList('exams', await api('exams', {admin: true}, listQuery('exams')));
+  if (page === 'exams') {
+    const [courses, sessions, semesters] = await Promise.all([api('courses', {}, listQuery('exams')), api('academic-sessions'), api('semesters')]);
+    state.courses = normalizeList('exams', courses); state.academicSessions = sessions.items || []; state.semesters = semesters.items || [];
+  }
   if (page === 'questions') {
     const examId = route[2];
     const [exams, questions] = await Promise.all([api('exams', {admin: true}, {pageSize: 100}), api('questions', {}, {...listQuery('questions'), examId})]);
     state.adminExams = exams.items || []; state.questions = normalizeList('questions', questions);
   }
   if (page === 'results') state.results = normalizeList('results', await api('results', {}, listQuery('results')));
-  if (page === 'settings') state.settings = (await api('settings')).settings;
+  if (page === 'settings') {
+    const [settings, sessions, semesters] = await Promise.all([api('settings'), api('academic-sessions'), api('semesters')]);
+    state.settings = settings.settings; state.academicSessions = sessions.items || []; state.semesters = semesters.items || [];
+  }
   if (page === 'audit') {
     if (route[2] === 'trail') { const events = await api('audit-events', {}, auditQuery()); state.auditEvents = events.items || []; state.meta.audit = events.meta || {}; }
     else state.auditMonitor = (await api('audit-monitor')).items || [];
@@ -324,7 +372,10 @@ async function loadAdmin(route) {
     const [subscribers, newsletters] = await Promise.all([api('newsletter-subscribers', {}, listQuery('newsletter')), api('newsletters')]);
     state.newsletterSubscribers = normalizeList('newsletter', subscribers); state.newsletterStats = subscribers.stats || {}; state.newsletters = newsletters.items || []; state.newsletterMailConfigured = Boolean(newsletters.mailConfigured);
   }
-  if (page === 'student-results' && route[2]) state.report = await api('student-results', {}, {id: route[2]});
+  if (page === 'student-results' && route[2]) {
+    const [report, settings] = await Promise.all([api('student-results', {}, {id: route[2], sessionId: route[3] || '', semesterId: route[4] || ''}), api('settings')]);
+    state.report = report; state.settings = settings.settings;
+  }
   if (page === 'review' && route[2]) state.review = await api('result-review', {}, {id: route[2]});
 }
 
@@ -336,7 +387,7 @@ function studentPage(route) {
 function selectionPage() {
   const canResume = state.attempt?.session?.id && state.attempt?.examId && state.exams.some(exam => exam.id === state.attempt.examId);
   const empty = emptyState('No assessments are open right now. An assessment must be Active and within its scheduled start and end time. This page checks again automatically.', '<button class="outline-btn" data-action="refresh-exams">Refresh assessments</button>');
-  return `<main class="landing"><div class="landing-inner"><section class="hero"><div><div class="eyebrow">Student portal</div><h1>Your next <span>breakthrough</span> starts here.</h1><p class="hero-copy">Select an available assessment. You will need your matric number and the exam password issued by your administrator.</p></div><div class="hero-side"><div class="hero-visual"><img class="hero-illustration" src="student-exam-lab-hero.png" alt="Students taking a computer-based assessment"></div><aside class="hero-aside"><strong>Assessments available now</strong><div class="hero-stat"><span>Open courses</span><b>${state.exams.length}</b></div><div class="hero-stat"><span>Timing</span><b>Set by the server</b></div></aside></div></section>${canResume ? `<section class="panel resume-banner"><strong>You have an assessment in progress.</strong><button class="primary-btn" data-route="student/exam/${esc(state.attempt.examId)}">Resume assessment</button></section>` : ''}<section><div class="section-heading"><div><h2>Available assessments</h2><p>Courses appear here only while they are Active and their scheduled window is open.</p></div></div><div class="exam-grid">${state.exams.map(exam => `<article class="exam-card"><div><div class="exam-code">${esc(exam.code)}</div><h3>${esc(exam.title)}</h3><p>${esc(exam.description)}</p><div class="card-meta"><span><b>${numeric(exam.questionCount)}</b> questions</span><span><b>${numeric(exam.duration)}</b> minutes</span></div></div><div class="card-footer"><span class="table-muted">${esc(exam.window || '')}</span><button class="primary-btn" data-route="student/login/${esc(exam.id)}">Enter exam</button></div></article>`).join('') || empty}</div></section></div></main>`;
+  return `<main class="landing"><div class="landing-inner"><section class="hero"><div><div class="eyebrow">Student portal</div><h1>Your next <span>breakthrough</span> starts here.</h1><p class="hero-copy">Select an available Test or Exam. You will need your matric number and the component password issued by your administrator.</p></div><div class="hero-side"><div class="hero-visual"><img class="hero-illustration" src="student-exam-lab-hero.png" alt="Students taking a computer-based assessment"></div><aside class="hero-aside"><strong>Assessments available now</strong><div class="hero-stat"><span>Open components</span><b>${state.exams.length}</b></div><div class="hero-stat"><span>Timing</span><b>Set by the server</b></div></aside></div></section>${canResume ? `<section class="panel resume-banner"><strong>You have an assessment in progress.</strong><button class="primary-btn" data-route="student/exam/${esc(state.attempt.examId)}">Resume assessment</button></section>` : ''}<section><div class="section-heading"><div><h2>Available assessments</h2><p>Each Test and Exam is entered separately while its active window is open.</p></div></div><div class="exam-grid">${state.exams.map(exam => `<article class="exam-card"><div><div class="exam-code">${esc(exam.code)} <span class="component-label">${esc(exam.componentLabel || 'Exam')}</span></div><h3>${esc(exam.displayTitle || exam.title)}</h3><p>${esc(exam.description)}</p><div class="card-meta"><span><b>${numeric(exam.questionCount)}</b> questions</span><span><b>${numeric(exam.duration)}</b> minutes</span><span><b>${numeric(exam.maxMark)}</b> marks</span></div></div><div class="card-footer"><span class="table-muted">${esc(exam.window || '')}</span><button class="primary-btn" data-route="student/login/${esc(exam.id)}">Enter ${esc(exam.componentLabel || 'exam')}</button></div></article>`).join('') || empty}</div></section></div></main>`;
 }
 function studentLoginPage() {
   const exam = selectedExam();
@@ -434,12 +485,21 @@ function insertMath(button) {
   field.dispatchEvent(new Event('input', {bubbles: true}));
 }
 
-function legacyAdminLoginPage() {
-  return `<main class="center-page"><section class="auth-card"><button class="back-link" data-route="student/selection">← Student portal</button><div class="eyebrow" style="margin-top:28px">Administrator access</div><h1>Welcome back.</h1><p>Sign in to manage your assessment centre.</p><div id="alert" class="alert" role="alert"></div><form id="admin-login-form"><label class="form-field">Email<input name="email" type="email" autocomplete="username" required></label><label class="form-field">Password${passwordInput('admin-password', 'current-password', 'required')}</label><button class="primary-btn wide">Sign in</button></form><p class="form-note">Need administrator access? <button class="text-button" data-route="admin/register">Request an account</button></p></section></main>`;
+function adminLoginPage() {
+  const notice = sessionStorage.getItem('algeAdminAuthNotice') || '';
+  const rememberedEmail = localStorage.getItem('algeAdminRememberedEmail') || '';
+  sessionStorage.removeItem('algeAdminAuthNotice');
+  return `<main class="admin-login-page"><section class="admin-login-visual"></section><section class="center-page"><section class="admin-auth-card login-pattern-card"><p class="auth-caption">Sign in to your account</p>${notice ? `<div class="login-success-alert" role="status"><span aria-hidden="true">✓</span>${esc(notice)}</div>` : ''}<form id="admin-login-form"><div class="alert" role="alert"></div><label class="form-field">Email Address<input name="email" type="email" autocomplete="username" value="${esc(rememberedEmail)}" placeholder="admin@example.com" required></label><label class="form-field">Password${passwordInput('admin-password', 'current-password', 'required')}</label><div class="auth-options"><label class="remember-control"><input name="remember" type="checkbox" ${rememberedEmail ? 'checked' : ''}> <span>Remember email</span></label><button class="auth-link" type="button" data-route="admin/forgot-password">Forgot password?</button></div><button class="primary-btn wide auth-submit">Sign In</button></form><p class="form-note">Don't have an account? <button class="text-button" data-route="admin/register">Create account</button></p></section></section></main>`;
 }
-function adminLoginPage() { return `<main class=admin-login-page><section class=admin-login-visual></section>${legacyAdminLoginPage()}</main>`; }
+function adminForgotPasswordPage() {
+  return `<main class="admin-login-page"><section class="admin-login-visual"></section><section class="center-page"><section class="admin-auth-card reset-pattern-card"><div class="reset-key-icon" aria-hidden="true">⌕</div><h1>Reset Your Password</h1><p>Enter your email address and we'll send a six-digit code to reset your password.</p><form id="admin-password-reset-request-form"><div class="alert" role="alert"></div><label class="form-field">Email Address<input name="email" type="email" autocomplete="email" placeholder="admin@example.com" required></label><button class="primary-btn wide auth-submit">Send Reset Code</button></form><div class="reset-explainer"><strong>ⓘ What happens next?</strong><span>We'll verify that this is an active administrator account, then email a secure six-digit code. The code expires in 15 minutes.</span></div><p class="form-note">Remember your password? <button class="text-button" data-route="admin/login">Back to Sign In</button></p><p class="auth-muted-action">Superadmin recovery is handled by the protected system-owner process.</p></section></section></main>`;
+}
+function adminResetPasswordPage() {
+  const email = state.passwordResetEmail;
+  return `<main class="admin-login-page"><section class="admin-login-visual"></section><section class="center-page"><section class="admin-auth-card reset-pattern-card"><div class="reset-key-icon" aria-hidden="true">⌕</div><h1>Enter your reset code</h1><p>Enter the six-digit code sent to your active account, then choose a new password.</p><form id="admin-password-reset-confirm-form"><div class="alert" role="alert"></div><label class="form-field">Email Address<input name="email" type="email" autocomplete="email" value="${esc(email)}" placeholder="admin@example.com" required></label><label class="form-field">Six-digit code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="123456" required></label><label class="form-field">New password${passwordInput('admin-reset-password', 'new-password', 'minlength="8" required')}</label><label class="form-field">Confirm new password${passwordInput('admin-reset-confirm-password', 'new-password', 'minlength="8" required', 'confirmPassword')}</label><button class="primary-btn wide auth-submit">Reset Password</button></form><div class="reset-explainer"><strong>ⓘ Security safeguard</strong><span>After a successful reset, this administrator account is suspended. A Superadmin must reactivate it before the next sign-in.</span></div><p class="form-note"><button class="text-button" data-route="admin/forgot-password">Request another code</button> · <button class="text-button" data-route="admin/login">Back to Sign In</button></p></section></section></main>`;
+}
 function adminRequestPage() {
-  return `<main class="admin-login-page"><section class="admin-login-visual"></section><main class="center-page"><section class="auth-card"><button class="back-link" data-route="admin/login">← Back to sign in</button><div class="eyebrow" style="margin-top:28px">Administrator access request</div><h1>Request an account.</h1><p>Submit your details for Superadmin review. You cannot sign in until a role has been assigned and approval is emailed to you.</p><div id="alert" class="alert" role="alert"></div><form id="admin-registration-form"><label class="form-field">Full name<input name="name" autocomplete="name" required></label><label class="form-field">Email<input name="email" type="email" autocomplete="email" required></label><label class="form-field">Password${passwordInput('admin-request-password', 'new-password', 'minlength="8" required')}</label><label class="form-field">Confirm password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required></label><button class="primary-btn wide">Submit access request</button></form></section></main></main>`;
+  return `<main class="admin-login-page"><section class="admin-login-visual"></section><main class="center-page"><section class="auth-card"><button class="back-link" data-route="admin/login">← Back to sign in</button><div class="eyebrow" style="margin-top:28px">Administrator access request</div><h1>Request an account.</h1><p>Submit your details for Superadmin review. You cannot sign in until a role has been assigned and approval is emailed to you.</p><div id="alert" class="alert" role="alert"></div><form id="admin-registration-form"><label class="form-field">Full name<input name="name" autocomplete="name" required></label><label class="form-field">Email<input name="email" type="email" autocomplete="email" required></label><label class="form-field">Phone number<input name="phoneNumber" type="tel" inputmode="tel" autocomplete="tel" placeholder="e.g. 0801 234 5678" required></label><label class="form-field">Password${passwordInput('admin-request-password', 'new-password', 'minlength="8" required')}</label><label class="form-field">Confirm password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required></label><button class="primary-btn wide">Submit access request</button></form></section></main></main>`;
 }
 function adminLoginVisual() { return adminLoginVisualA() + adminLoginVisualB() + adminLoginVisualC(); }
 function adminLoginForm() { return ''; }
@@ -450,7 +510,10 @@ function adminShell(content) {
   const approvalTitle = `Pending Approval <span class="nav-badge ${state.pendingApprovalCount ? '' : 'is-empty'}" data-approval-badge>${numeric(state.pendingApprovalCount)}</span>`;
   const tabs = [['overview', 'Overview'], ['students', 'Students'], ['exams', 'Exams'], ['questions', 'Question bank'], ['results', 'Results'], ['audit', 'Audit log'], ['newsletter', 'Newsletter'], ['roles', 'Roles'], ['users', 'User'], ['approvals', approvalTitle], ['settings', 'Settings']].filter(([id]) => can(id));
   const name = state.adminUser?.name || 'Administrator', role = state.adminUser?.role || 'Superadmin';
-  return `<main class="admin-shell"><aside class="admin-sidebar">${brand()}<div class="nav-label">Workspace</div><nav class="admin-nav" aria-label="Admin workspace">${tabs.map(([id, title]) => `<button class="${active === id ? 'active' : ''}" ${active === id ? 'aria-current="page"' : ''} data-route="admin/${id}">${title}</button>`).join('')}</nav><div class="admin-profile"><span class="avatar">${esc(candidateInitials(name))}</span><span><strong>${esc(name)}</strong><small>${esc(role)}</small></span></div></aside><section class="admin-content"><div class="account-menu-wrap"><button class="account-menu-toggle" data-action="toggle-account-menu" aria-expanded="false"><span class="avatar">${esc(candidateInitials(name))}</span><span><strong>${esc(name)}</strong><small>${esc(role)}</small></span><b aria-hidden="true">⌄</b></button><div class="account-menu" hidden><div class="account-menu-identity"><strong>${esc(name)}</strong><span>${esc(state.adminUser?.email || '')}</span></div><button data-action="account-settings">Account Settings</button><button data-route="admin/settings">Settings</button><hr><button class="account-logout" data-action="admin-logout">Logout</button></div></div>${content}</section></main>`;
+  const systemSettings = can('settings') ? '<button data-route="admin/settings">Settings</button>' : '';
+  const pageTitles = {overview: 'Overview', students: 'Students', exams: 'Exams', questions: 'Question bank', results: 'Results', audit: 'Audit Log', newsletter: 'Newsletter', roles: 'Roles', users: 'User Management', approvals: 'Pending Approval', settings: 'Settings'};
+  const pageTitle = pageTitles[active] || 'Admin workspace';
+  return `<main class="admin-shell ${state.sidebarOpen ? '' : 'sidebar-collapsed'}"><aside class="admin-sidebar">${brand()}<div class="nav-label">Workspace</div><nav class="admin-nav" aria-label="Admin workspace">${tabs.map(([id, title]) => `<button class="${active === id ? 'active' : ''}" ${active === id ? 'aria-current="page"' : ''} data-route="admin/${id}" title="${esc(pageTitles[id] || id)}"><span class="nav-icon">${sidebarIcon(id)}</span><span class="nav-text">${title}</span></button>`).join('')}</nav><div class="admin-profile"><span class="avatar">${esc(candidateInitials(name))}</span><span><strong>${esc(name)}</strong><small>${esc(role)}</small></span></div></aside><header class="admin-topbar"><button class="sidebar-toggle" data-action="toggle-sidebar" aria-label="${state.sidebarOpen ? 'Collapse' : 'Expand'} sidebar" aria-expanded="${state.sidebarOpen}">☰</button><div class="admin-topbar-title"><span aria-hidden="true">⌂</span><strong>${esc(pageTitle)}</strong></div><div class="admin-topbar-actions">${themeToggle()}<div class="account-menu-wrap"><button class="account-menu-toggle" data-action="toggle-account-menu" aria-expanded="false"><span class="avatar">${esc(candidateInitials(name))}</span><span><strong>${esc(name)}</strong><small>${esc(role)}</small></span><b aria-hidden="true">⌄</b></button><div class="account-menu" hidden><div class="account-menu-identity"><strong>${esc(name)}</strong><span>${esc(state.adminUser?.email || '')}</span></div><button data-action="account-settings">Account Settings</button>${systemSettings}<hr><button class="account-logout" data-action="admin-logout">Logout</button></div></div></div></header><section class="admin-content">${content}</section></main>`;
 }
 function adminHeader(title, description, actions = '') {
   return `<div class="admin-header"><div><div class="eyebrow">Admin workspace</div><h1>${title}</h1><p>${description}</p></div><div class="header-actions">${actions}</div></div>`;
@@ -504,7 +567,7 @@ function dashboardPage() {
 function studentsPage() {
   return `${adminHeader('Students', 'Register students and issue exam passwords.', '<button class="outline-btn" data-action="bulk-students">Import CSV</button><button class="primary-btn" data-action="new-student">+ Register student</button>')}<section class="panel table-panel">${filterBar('students', 'Name, matric number, department, email or phone', [['active', 'Active'], ['disabled', 'Disabled']])}${state.students.length ? `<div class="table-scroll"><table class="data-table"><thead><tr>${sortHead('students', 'fullName', 'Student')}${sortHead('students', 'matricNumber', 'Matric')}${sortHead('students', 'department', 'Department')}${sortHead('students', 'email', 'Email')}${sortHead('students', 'phoneNumber', 'Phone')}<th>Access</th><th>Actions</th></tr></thead><tbody>${state.students.map(student => `<tr><td>${esc(student.fullName)}</td><td>${esc(student.matricNumber)}</td><td>${esc(student.department)}</td><td>${esc(student.email)}</td><td>${esc(student.phoneNumber || '—')}</td><td><span class="status-pill ${student.active ? '' : 'status-muted'}">${student.active ? 'Active' : 'Disabled'}</span></td><td class="table-actions"><button class="outline-btn small-btn" data-route="admin/student-results/${esc(student.id)}">Results</button><button class="outline-btn small-btn" data-action="student-password" data-id="${esc(student.id)}">Password</button><button class="outline-btn small-btn" data-action="edit-student" data-id="${esc(student.id)}">Edit</button><button class="${student.active ? 'danger-btn' : 'outline-btn'} small-btn" data-action="student-status" data-id="${esc(student.id)}">${student.active ? 'Disable' : 'Reactivate'}</button></td></tr>`).join('')}</tbody></table></div>` : emptyState('No students match your search. Register a student or clear the filters.', '<button class="primary-btn" data-action="new-student">Register student</button>')}${pager('students')}</section>`;
 }
-function examsPage() {
+function legacyExamsPage() {
   const rows = state.adminExams.map(exam => {
     const status = examStatusMeta(exam);
     const editLabel = exam.windowState === 'closed' ? 'Update window' : 'Edit';
@@ -517,6 +580,23 @@ function examsPage() {
   }).join('');
   return `${adminHeader('Exams', 'Manage course details, question banks, and exam windows. Students can enter only while an Active exam window is open.', '<button class="primary-btn" data-action="new-exam">+ Create exam</button>')}<section class="panel table-panel">${filterBar('exams', 'Course code or assessment title', [['draft', 'Draft'], ['published', 'Published'], ['active', 'Active']])}${state.adminExams.length ? `<div class="table-scroll"><table class="data-table"><thead><tr>${sortHead('exams', 'code', 'Code')}${sortHead('exams', 'title', 'Assessment')}${sortHead('exams', 'duration', 'Duration')}${sortHead('exams', 'questionCount', 'Questions')}<th>Unit</th><th>Session</th>${sortHead('exams', 'startAt', 'Window')}<th>Status</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>` : emptyState('No courses match your search. Create an exam to get started.', '<button class="primary-btn" data-action="new-exam">Create exam</button>')}${pager('exams')}</section>`;
 }
+function examsPage() {
+  const componentCell = component => {
+    if (!component) return '<span class="table-muted">Not configured</span>';
+    const status = examStatusMeta(component);
+    const nextStatus = component.status === 'draft' ? 'published' : component.status === 'published' ? 'active' : 'published';
+    const statusLabel = component.status === 'draft' ? 'Publish' : component.status === 'published' ? 'Activate' : 'Deactivate';
+    return `<div class="component-summary"><strong>${esc(component.componentLabel || component.component || 'Exam')}</strong><span>${numeric(component.maxMark)} marks · ${numeric(component.questionCount)} questions · ${numeric(component.duration)} min</span><span class="status-pill ${status.className}">${esc(status.label)}</span><div class="table-actions"><button class="${component.status === 'published' ? 'primary-btn' : 'outline-btn'} small-btn" data-action="component-status" data-id="${esc(component.id)}" data-status="${nextStatus}">${statusLabel}</button><button class="outline-btn small-btn" data-route="admin/questions/${esc(component.id)}">Questions</button><button class="outline-btn small-btn" data-action="edit-component" data-id="${esc(component.id)}">Edit</button><button class="danger-btn small-btn" data-action="delete-component" data-id="${esc(component.id)}">Delete</button></div></div>`;
+  };
+  const rows = state.courses.map(course => {
+    const components = course.components || [];
+    const test = components.find(item => item.component === 'test');
+    const exam = components.find(item => item.component === 'exam');
+    return `<tr><td><strong>${esc(course.code)}</strong></td><td>${esc(course.title)}<small class="table-muted" style="display:block">${esc(course.description || '')}</small></td><td>${numeric(course.courseUnit)}</td><td>${esc(course.sessionLabel || '—')}<small class="table-muted" style="display:block">${esc(course.semesterLabel || '')}</small></td><td>${componentCell(test)}</td><td>${componentCell(exam)}</td><td class="table-actions"><button class="outline-btn small-btn" data-action="edit-course" data-id="${esc(course.id)}">Edit course</button><button class="danger-btn small-btn" data-action="delete-course" data-id="${esc(course.id)}">Delete</button></td></tr>`;
+  }).join('');
+  return `${adminHeader('Courses & assessments', 'Create a course once, then manage its separate Test and Exam components.', '<button class="primary-btn" data-action="new-course">+ Create course</button>')}<section class="panel table-panel">${filterBar('exams', 'Course code, title, session or semester')}${state.courses.length ? `<div class="table-scroll"><table class="data-table"><thead><tr>${sortHead('exams', 'code', 'Code')}${sortHead('exams', 'title', 'Course')}<th>Unit</th><th>Session / semester</th><th>Test</th><th>Exam</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>` : emptyState('No courses have been created. Start by setting the active session and semester in Settings.', '<button class="primary-btn" data-action="new-course">Create course</button>')}${pager('exams')}</section>`;
+}
+
 function questionsPage(examId) {
   const exam = state.adminExams.find(item => item.id === examId);
   if (!exam) return `${adminHeader('Question bank', 'Choose a course to manage its questions.')}<section class="panel table-panel">${state.adminExams.length ? `<div class="table-scroll"><table class="data-table"><thead><tr><th>Course</th><th>Assessment</th><th>Question target</th><th></th></tr></thead><tbody>${state.adminExams.map(item => `<tr><td><strong>${esc(item.code)}</strong></td><td>${esc(item.title)}</td><td>${numeric(item.questionCount)} questions</td><td><button class="outline-btn small-btn" data-route="admin/questions/${esc(item.id)}">Manage questions</button></td></tr>`).join('')}</tbody></table></div>` : emptyState('Create an exam first, then add its questions.', '<button class="primary-btn" data-route="admin/exams">Create exam</button>')}</section>`;
@@ -526,6 +606,11 @@ function resultsTable(items, includePager = false) {
   if (!items.length) return emptyState('No completed results yet. Submitted assessments will appear here.');
   return `<div class="table-scroll"><table class="data-table"><thead><tr><th>Student</th><th>Assessment</th><th>Submitted</th><th>Score</th><th>Grade</th><th>Status</th><th>Actions</th></tr></thead><tbody>${items.map(result => `<tr><td>${esc(result.studentName || 'Student')}</td><td>${esc(result.examCode || 'Exam')}</td><td class="table-muted">${fmtDate(result.submittedAt)}</td><td><strong>${numeric(result.score)}%</strong></td><td>${esc(result.grade || '—')}</td><td><span class="status-pill ${result.status === 'auto_submitted' ? 'status-warning' : ''}">${result.status === 'auto_submitted' ? 'Auto-submitted' : 'Submitted'}</span></td><td class="table-actions"><button class="outline-btn small-btn" data-route="admin/review/${esc(result.id)}">Review</button><button class="outline-btn small-btn" data-route="admin/student-results/${esc(result.studentId)}">Result sheet</button></td></tr>`).join('')}</tbody></table></div>${includePager ? pager('results') : ''}`;
 }
+function resultsTable(items, includePager = false) {
+  if (!items.length) return emptyState('No completed results yet. Submitted assessments will appear here.');
+  return `<div class="table-scroll"><table class="data-table"><thead><tr><th>Student</th><th>Assessment</th><th>Submitted</th><th>Component mark</th><th>Grade</th><th>Status</th><th>Actions</th></tr></thead><tbody>${items.map(result => `<tr><td>${esc(result.studentName || 'Student')}</td><td><strong>${esc(result.examCode || 'Exam')}</strong><small class="table-muted" style="display:block">${esc(result.examTitle || '')} — ${esc(result.componentLabel || 'Exam')}</small></td><td class="table-muted">${fmtDate(result.submittedAt)}</td><td><strong>${numeric(result.score).toFixed(1)} / ${numeric(result.maxMark, 100)}</strong><small class="table-muted" style="display:block">${numeric(result.rawScore, result.score).toFixed(1)}% raw</small></td><td>${esc(result.grade || 'Shown on course sheet')}</td><td><span class="status-pill ${result.status === 'auto_submitted' ? 'status-warning' : ''}">${result.status === 'auto_submitted' ? 'Auto-submitted' : 'Submitted'}</span></td><td class="table-actions"><button class="outline-btn small-btn" data-route="admin/review/${esc(result.id)}">Review</button><button class="outline-btn small-btn" data-route="admin/student-results/${esc(result.studentId)}">Result sheet</button></td></tr>`).join('')}</tbody></table></div>${includePager ? pager('results') : ''}`;
+}
+
 function resultsPage() {
   return `${adminHeader('Results', 'Server-recorded scores and submissions.') }<section class="panel table-panel">${filterBar('results', 'Student, matric number or course', [['submitted', 'Manual'], ['auto_submitted', 'Auto-submitted']])}${resultsTable(state.results, true)}</section>`;
 }
@@ -539,14 +624,30 @@ function auditMonitorRows(items = state.auditMonitor) {
 }
 function auditFilterBar() {
   const filter = state.filters.audit;
-  return `<form class="filter-bar" id="audit-filter-form"><label>From<input name="from" type="date" value="${esc(filter.from)}"></label><label>To<input name="to" type="date" value="${esc(filter.to)}"></label><label>Actor<input name="actor" value="${esc(filter.actor)}" placeholder="Admin email or matric"></label><label>Event type<select class="select-field" name="type"><option value="">All event types</option>${['admin_login','admin_logout','administrator_registration_requested','administrator_request_approved','administrator_request_rejected','student_registered','student_updated','student_disabled','students_bulk_imported','exam_created','exam_updated','exam_deleted','question_added','question_updated','question_deleted','questions_bulk_imported','exam_password_generated','student_exam_login','exam_started','exam_submitted_manual','exam_submitted_auto','settings_updated','exam_integrity_tab_switch','exam_integrity_blur','exam_integrity_context_menu','exam_integrity_copy','exam_integrity_paste','exam_integrity_devtools'].map(type => `<option value="${type}" ${filter.type === type ? 'selected' : ''}>${type.replaceAll('_', ' ')}</option>`).join('')}</select></label><label>Course<input name="course" value="${esc(filter.course)}" placeholder="e.g. MTH 101"></label><button class="outline-btn">Filter</button><button type="button" class="ghost-btn" data-action="clear-audit-filter">Clear</button></form>`;
+  return `<form class="filter-bar" id="audit-filter-form"><label>From<input name="from" type="date" value="${esc(filter.from)}"></label><label>To<input name="to" type="date" value="${esc(filter.to)}"></label><label>Actor<input name="actor" value="${esc(filter.actor)}" placeholder="Admin email or matric"></label><label>Event type<select class="select-field" name="type"><option value="">All event types</option>${['admin_login','admin_logout','administrator_registration_requested','administrator_request_approved','administrator_request_rejected','administrator_password_reset_requested','administrator_password_reset_completed','student_registered','student_updated','student_disabled','students_bulk_imported','exam_created','exam_updated','exam_deleted','question_added','question_updated','question_deleted','questions_bulk_imported','exam_password_generated','student_exam_login','exam_started','exam_submitted_manual','exam_submitted_auto','settings_updated','exam_integrity_tab_switch','exam_integrity_blur','exam_integrity_context_menu','exam_integrity_copy','exam_integrity_paste','exam_integrity_devtools'].map(type => `<option value="${type}" ${filter.type === type ? 'selected' : ''}>${type.replaceAll('_', ' ')}</option>`).join('')}</select></label><label>Course<input name="course" value="${esc(filter.course)}" placeholder="e.g. MTH 101"></label><button class="outline-btn">Filter</button><button type="button" class="ghost-btn" data-action="clear-audit-filter">Clear</button></form>`;
 }
 function auditPage(route) {
   const trail = route[2] === 'trail';
   const tabs = `<div class="inline-actions audit-tabs"><button class="${trail ? 'outline-btn' : 'primary-btn'}" data-route="admin/audit">Live exam monitor</button><button class="${trail ? 'primary-btn' : 'outline-btn'}" data-route="admin/audit/trail">Full audit trail</button></div>`;
   const help = '<p class="table-muted audit-help">Integrity signals are browser-based indicators, not proof of misconduct. Browsers cannot detect operating-system screenshots or mobile screenshot gestures.</p>';
-  if (!trail) return `${adminHeader('Audit log', 'Monitor active exam sessions and review recorded security signals.', tabs)}${help}<section class="panel table-panel"><div class="panel-heading"><h2>Live exam monitor</h2><span class="table-muted" aria-live="polite">Refreshes every 5 seconds</span></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Student</th><th>Matric</th><th>Course</th><th>Started</th><th>Elapsed</th><th>Remaining</th><th>IP address</th><th>Status</th><th></th></tr></thead><tbody id="audit-monitor-rows">${auditMonitorRows()}</tbody></table></div></section>`;
-  return `${adminHeader('Audit log', 'Search the recorded actions across the assessment centre.', tabs)}${help}<section class="panel table-panel">${auditFilterBar()}<div class="table-scroll"><table class="data-table"><thead><tr><th>Timestamp</th><th>Actor</th><th>Action</th><th>Target</th><th>IP address</th></tr></thead><tbody>${state.auditEvents.length ? state.auditEvents.map(item => `<tr><td class="table-muted">${fmtDate(item.timestamp)}</td><td>${esc(item.actor)}</td><td><span class="status-pill ${item.actionType.includes('integrity') ? 'status-warning' : ''}">${esc(item.actionType.replaceAll('_', ' '))}</span></td><td>${esc(item.target)}</td><td>${esc(item.ipAddress || '—')}</td></tr>`).join('') : '<tr><td colspan="5"><div class="empty-state"><p>No events match these filters.</p></div></td></tr>'}</tbody></table></div>${pager('audit')}</section>`;
+  const count = trail ? numeric(state.meta.audit?.total, state.auditEvents.length) : state.auditMonitor.length;
+  const controls = `<div class="audit-controls"><button class="audit-control" data-action="export-audit-csv">CSV</button><button class="audit-control" data-action="export-audit-excel">Excel</button><button class="audit-control" data-action="export-audit-pdf">PDF</button><button class="audit-control" data-action="print-audit">Print</button><button class="audit-control audit-refresh" data-action="refresh-audit">Refresh</button></div>`;
+  const hero = `<section class="audit-hero"><div><span class="audit-kicker">Security center</span><h1>Audit Log</h1><p>Monitor logins, admin actions, account changes, and active sessions in one place.</p><strong><i></i>${count} ${trail ? 'events in view' : 'active sessions in view'}, refreshed live as you work.</strong></div>${controls}</section>`;
+  if (!trail) return `${hero}${tabs}${help}<section class="panel table-panel"><div class="panel-heading"><h2>Live exam monitor</h2><span class="table-muted" aria-live="polite">Refreshes every 5 seconds</span></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Student</th><th>Matric</th><th>Course</th><th>Started</th><th>Elapsed</th><th>Remaining</th><th>IP address</th><th>Status</th><th></th></tr></thead><tbody id="audit-monitor-rows">${auditMonitorRows()}</tbody></table></div></section>`;
+  return `${hero}${tabs}${help}<section class="panel table-panel">${auditFilterBar()}<div class="table-scroll"><table class="data-table"><thead><tr><th>Timestamp</th><th>Actor</th><th>Action</th><th>Target</th><th>IP address</th></tr></thead><tbody>${state.auditEvents.length ? state.auditEvents.map(item => `<tr><td class="table-muted">${fmtDate(item.timestamp)}</td><td>${esc(item.actor)}</td><td><span class="status-pill ${item.actionType.includes('integrity') ? 'status-warning' : ''}">${esc(item.actionType.replaceAll('_', ' '))}</span></td><td>${esc(item.target)}</td><td>${esc(item.ipAddress || '—')}</td></tr>`).join('') : '<tr><td colspan="5"><div class="empty-state"><p>No events match these filters.</p></div></td></tr>'}</tbody></table></div>${pager('audit')}</section>`;
+}
+function auditExportRows() {
+  if (parts()[2] === 'trail') return state.auditEvents.map(item => [fmtDate(item.timestamp), item.actor || '', String(item.actionType || '').replaceAll('_', ' '), item.target || '', item.ipAddress || '']);
+  return state.auditMonitor.map(item => [item.studentName || '', item.matricNumber || '', item.course || '', fmtDate(item.startedAt), shortDuration(item.elapsedSeconds), shortDuration(item.remainingSeconds), item.ipAddress || '', item.status || '']);
+}
+function downloadAuditExport(kind) {
+  const trail = parts()[2] === 'trail';
+  const headers = trail ? ['Timestamp', 'Actor', 'Action', 'Target', 'IP address'] : ['Student', 'Matric', 'Course', 'Started', 'Elapsed', 'Remaining', 'IP address', 'Status'];
+  const value = cell => `"${String(cell ?? '').replaceAll('"', '""')}"`;
+  const csv = [headers, ...auditExportRows()].map(row => row.map(value).join(',')).join('\r\n');
+  const blob = new Blob([`\uFEFF${csv}`], {type: 'text/csv;charset=utf-8'}); const url = URL.createObjectURL(blob), link = document.createElement('a');
+  link.href = url; link.download = `audit-${trail ? 'trail' : 'live-monitor'}-${new Date().toISOString().slice(0, 10)}.${kind === 'excel' ? 'xls' : 'csv'}`; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000); toast(`${kind === 'excel' ? 'Excel-compatible' : 'CSV'} audit export downloaded.`, 'success');
 }
 function newsletterPage() {
   const stats = state.newsletterStats || {};
@@ -586,7 +687,7 @@ function approvalsPage() {
 }
 function roleForm(role) {
   const permissions = role.permissions || [];
-  openModal(`Configure ${role.name}`, `<form id="role-form" data-id="${esc(role.id)}"><div class="alert" role="alert"></div><p class="table-muted">Choose the workspaces this role can access. Superadmin access and the Roles workspace remain system-locked.</p><label class="form-field">Maximum users<input name="maxUsers" type="number" min="1" max="100" value="${numeric(role.maxUsers)}" required></label><fieldset class="correct-options"><legend>Permissions</legend>${['overview', 'students', 'exams', 'questions', 'results', 'audit', 'settings'].map(permission => `<label><input type="checkbox" name="permissions" value="${permission}" ${permissions.includes(permission) ? 'checked' : ''}> ${permission.replaceAll('_', ' ')}</label>`).join('')}</fieldset><div class="modal-actions"><button class="primary-btn">Save role</button></div></form>`);
+  openModal(`Configure ${role.name}`, `<form id="role-form" data-id="${esc(role.id)}"><div class="alert" role="alert"></div><p class="table-muted">Choose the workspaces this role can access. Course management includes separate Test and Exam controls; Settings includes academic sessions and semesters. Superadmin access and the Roles workspace remain system-locked.</p><label class="form-field">Maximum users<input name="maxUsers" type="number" min="1" max="100" value="${numeric(role.maxUsers)}" required></label><fieldset class="correct-options"><legend>Permissions</legend>${['overview', 'students', 'exams', 'questions', 'results', 'audit', 'newsletter', 'settings'].map(permission => `<label><input type="checkbox" name="permissions" value="${permission}" ${permissions.includes(permission) ? 'checked' : ''}> ${permission.replaceAll('_', ' ')}</label>`).join('')}</fieldset><div class="modal-actions"><button class="primary-btn">Save role</button></div></form>`);
 }
 function adminUserForm(user = null) {
   const editing = Boolean(user);
@@ -619,17 +720,44 @@ function reviewPage() {
   const result = review.result || {}, student = review.student || {}, exam = review.exam || {};
   return `${adminHeader('Per-question review', `${esc(student.fullName || '')} · ${esc(exam.code || '')} · ${numeric(result.score)}%`, '<button class="outline-btn" data-route="admin/results">Back to results</button>')}<section class="panel review-list">${(review.questions || []).map((question, index) => `<article class="review-question"><div class="review-heading"><strong>Question ${index + 1}</strong><span class="status-pill ${question.isCorrect ? '' : 'status-danger'}">${question.isCorrect ? 'Correct' : 'Incorrect'}</span>${question.flagged ? '<span class="status-pill status-warning">Flagged</span>' : ''}</div><h2 class="math-rendered">${mathHtml(question.text)}</h2><div class="review-options">${(question.options || []).map((option, optionIndex) => `<div class="review-option ${question.correctOptions?.includes(optionIndex) ? 'is-correct' : ''} ${question.answers?.includes(optionIndex) ? 'is-selected' : ''}"><strong>${String.fromCharCode(65 + optionIndex)}.</strong> <span class="math-rendered">${mathHtml(option)}</span>${question.correctOptions?.includes(optionIndex) ? ' <small>Correct answer</small>' : ''}${question.answers?.includes(optionIndex) ? ' <small>Student answer</small>' : ''}</div>`).join('')}</div></article>`).join('') || emptyState('No question details are available for this result.')}</section>`;
 }
-function studentResultsPage() {
+function legacyStudentResultsPage() {
   const report = state.report;
   if (!report) return `${adminHeader('Student result', 'Select a student to view a result sheet.')}<button class="outline-btn" data-route="admin/students">Back to students</button>`;
   const groups = report.sessions || {};
   return `${adminHeader(`${esc(report.student?.fullName || '')} result sheet`, `${esc(report.student?.matricNumber || '')} · ${esc(report.student?.department || '')}`, '<button class="outline-btn" data-action="export-csv">Export CSV</button>')}<section class="panel table-panel"><div class="table-scroll"><table class="data-table"><thead><tr><th>Course</th><th>Unit</th><th>Score</th><th>Grade</th><th>Grade point</th><th>Quality points</th><th>Session</th><th></th></tr></thead><tbody>${(report.items || []).map(item => `<tr><td>${esc(item.courseCode)}<small class="table-muted" style="display:block">${esc(item.courseTitle || '')}</small></td><td>${numeric(item.courseUnit)}</td><td>${numeric(item.score)}%</td><td><strong>${esc(item.grade)}</strong></td><td>${numeric(item.gradePoint)}</td><td>${numeric(item.qualityPoints)}</td><td>${esc(item.session || 'Unassigned')}</td><td><button class="outline-btn small-btn" data-route="admin/review/${esc(item.id)}">Review</button></td></tr>`).join('') || '<tr><td colspan="8">No completed courses yet.</td></tr>'}</tbody></table></div></section><section class="stat-grid" style="margin-top:18px">${Object.entries(groups).map(([session, value]) => statCard(`GPA · ${session}`, numeric(value.gpa).toFixed(2), `${numeric(value.courseUnit)} total units`)).join('')}${statCard('Cumulative GPA', numeric(report.cgpa).toFixed(2), 'Across all completed sessions')}</section>`;
 }
+function studentResultsPage() {
+  const report = state.report;
+  if (!report) return `${adminHeader('Student result', 'Select a student to view a result sheet.')}<button class="outline-btn" data-route="admin/students">Back to students</button>`;
+  const student = report.student || {};
+  const periods = report.availablePeriods || [];
+  const selectedSession = report.selectedSession || {};
+  const selectedSemester = report.selectedSemester || {};
+  const periodLinks = periods.map(period => `<button class="${period.sessionId === selectedSession.id && period.semesterId === selectedSemester.id ? 'primary-btn' : 'outline-btn'} small-btn" data-route="admin/student-results/${esc(student.id)}/${esc(period.sessionId)}/${esc(period.semesterId)}">${esc(period.sessionLabel)} · ${esc(period.semesterLabel)}</button>`).join('');
+  const rows = (report.items || []).map(item => `<tr><td><strong>${esc(item.courseCode)}</strong><small class="table-muted" style="display:block">${esc(item.courseTitle || '')}</small></td><td>${numeric(item.courseUnit)}</td><td>${item.testScore == null ? '—' : numeric(item.testScore).toFixed(1)}</td><td>${item.examScore == null ? '—' : numeric(item.examScore).toFixed(1)}</td><td><strong>${item.total == null ? 'In progress' : numeric(item.total).toFixed(1)}</strong></td><td>${esc(item.grade || '—')}</td><td>${item.gradePoint == null ? '—' : numeric(item.gradePoint).toFixed(2)}</td><td>${item.qualityPoints == null ? '—' : numeric(item.qualityPoints).toFixed(2)}</td><td><span class="status-pill ${item.status === 'completed' ? '' : 'status-warning'}">${item.status === 'completed' ? 'Completed' : 'In progress'}</span></td></tr>`).join('');
+  return `${adminHeader(`${esc(student.fullName || '')} result sheet`, `${esc(student.matricNumber || '')} · ${esc(student.department || '')}`, '<button class="outline-btn" data-action="export-csv">Export CSV</button><button class="primary-btn" data-action="print-result-sheet">Print result</button>')}<section class="panel result-period-picker"><strong>Result period</strong><div class="table-actions">${periodLinks || '<span class="table-muted">No completed Test or Exam records yet.</span>'}</div></section><section class="result-sheet panel table-panel"><div class="print-result-header"><img src="${esc(state.settings?.resultLogoUrl || 'CACSA%20Logo.jpeg')}" alt="CACSA LAUTECH logo"><div><h1>CACSA LAUTECH CBT</h1><p>Academic result sheet</p></div><div><strong>Date printed</strong><br>${esc(new Date().toLocaleDateString())}</div></div><div class="print-student-meta"><span><strong>Student:</strong> ${esc(student.fullName || '')}</span><span><strong>Matric:</strong> ${esc(student.matricNumber || '')}</span><span><strong>Session:</strong> ${esc(selectedSession.label || 'Choose a period')}</span><span><strong>Semester:</strong> ${esc(selectedSemester.label || 'Choose a period')}</span></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Course</th><th>Unit</th><th>Test</th><th>Exam</th><th>Total</th><th>Grade</th><th>Grade point</th><th>Quality points</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="9">Choose a session and semester to view completed courses.</td></tr>'}</tbody></table></div><div class="print-gpa"><strong>Semester GPA: ${report.semesterGpa == null ? '—' : numeric(report.semesterGpa).toFixed(2)}</strong><strong>Cumulative CGPA: ${numeric(report.cgpa).toFixed(2)}</strong></div></section>`;
+}
+
 function settingsPage() {
   const scale = state.settings?.gradingScale || [];
   const policy = state.settings?.integrityPolicy || {};
   return `${adminHeader('Settings', 'Configure grading and exam-integrity responses.')}<form id="grading-form"><section class="panel"><div class="panel-heading"><h2>Grading scale</h2></div><p class="table-muted">Ranges must cover scores from 0 to 100 without overlapping. Saved changes recalculate existing results.</p><div class="table-scroll"><table class="data-table"><thead><tr><th>Minimum</th><th>Maximum</th><th>Grade</th><th>Point</th><th></th></tr></thead><tbody id="grading-rows">${scale.map(gradingRow).join('')}</tbody></table></div><div class="modal-actions"><button type="button" class="outline-btn" data-action="add-grade-row">Add row</button></div></section><section class="panel" style="margin-top:18px"><div class="panel-heading"><h2>Exam-integrity response</h2></div><p class="table-muted">A browser signal is not proof of misconduct. Browsers cannot detect operating-system screenshots or mobile screenshot gestures. “Warn student” locks after the configured number of repeat events.</p><div class="table-scroll"><table class="data-table"><thead><tr><th>Signal</th><th>Response</th><th>Lock after</th></tr></thead><tbody>${INTEGRITY_EVENT_TYPES.map(event => integrityPolicyRow(event, policy[event])).join('')}</tbody></table></div></section><div class="modal-actions" style="margin-top:18px"><button class="primary-btn">Save settings</button></div></form><section class="panel" style="margin-top:18px"><button class="danger-btn" data-action="admin-logout">Sign out</button></section>`;
 }
+function academicSettingsPage() {
+  const scale = state.settings?.gradingScale || [];
+  const policy = state.settings?.integrityPolicy || {};
+  const activeSession = state.academicSessions.find(item => item.isActive);
+  const activeSemester = state.semesters.find(item => item.isActive);
+  const sessionRows = state.academicSessions.map(session => `<tr><td><strong>${esc(session.label)}</strong></td><td><span class="status-pill ${session.isActive ? '' : 'status-muted'}">${session.isActive ? 'Active' : 'Inactive'}</span></td><td class="table-actions"><button class="outline-btn small-btn" data-action="edit-academic-session" data-id="${esc(session.id)}">Edit</button><button class="danger-btn small-btn" data-action="delete-academic-session" data-id="${esc(session.id)}">Delete</button></td></tr>`).join('');
+  const semesterRows = state.semesters.map(semester => `<tr><td>${esc(state.academicSessions.find(item => item.id === semester.sessionId)?.label || 'Unknown')}</td><td><strong>${esc(semester.label)}</strong></td><td>${esc(semester.startDate)} to ${esc(semester.endDate)}</td><td><span class="status-pill ${semester.isActive ? '' : 'status-muted'}">${semester.isActive ? 'Active' : 'Inactive'}</span></td><td class="table-actions"><button class="outline-btn small-btn" data-action="edit-semester" data-id="${esc(semester.id)}">Edit</button><button class="danger-btn small-btn" data-action="delete-semester" data-id="${esc(semester.id)}">Delete</button></td></tr>`).join('');
+  return `${adminHeader('Settings', 'Configure academic periods, grading, and exam-integrity responses.')}<section class="panel"><div class="panel-heading"><div><h2>Academic sessions & semesters</h2><p class="table-muted">New courses use the active session and semester by default. Current: <strong>${esc(activeSession?.label || 'Not set')}</strong> / <strong>${esc(activeSemester?.label || 'Not set')}</strong>.</p></div><div class="table-actions"><button class="outline-btn" data-action="new-semester">+ Semester</button><button class="primary-btn" data-action="new-academic-session">+ Academic session</button></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Academic session</th><th>Status</th><th>Actions</th></tr></thead><tbody>${sessionRows || '<tr><td colspan="3">No academic sessions yet.</td></tr>'}</tbody></table></div><div class="table-scroll" style="margin-top:18px"><table class="data-table"><thead><tr><th>Session</th><th>Semester</th><th>Dates</th><th>Status</th><th>Actions</th></tr></thead><tbody>${semesterRows || '<tr><td colspan="5">No semesters yet.</td></tr>'}</tbody></table></div></section><form id="grading-form"><section class="panel" style="margin-top:18px"><div class="panel-heading"><h2>Grading scale</h2></div><p class="table-muted">Ranges must cover scores from 0 to 100 without overlapping. Completed course totals use this scale.</p><div class="table-scroll"><table class="data-table"><thead><tr><th>Minimum</th><th>Maximum</th><th>Grade</th><th>Point</th><th></th></tr></thead><tbody id="grading-rows">${scale.map(gradingRow).join('')}</tbody></table></div><div class="modal-actions"><button type="button" class="outline-btn" data-action="add-grade-row">Add row</button></div></section><section class="panel" style="margin-top:18px"><div class="panel-heading"><h2>Exam-integrity response</h2></div><p class="table-muted">A browser signal is not proof of misconduct. Browsers cannot detect operating-system screenshots or mobile screenshot gestures. “Warn student” locks after the configured number of repeat events.</p><div class="table-scroll"><table class="data-table"><thead><tr><th>Signal</th><th>Response</th><th>Lock after</th></tr></thead><tbody>${INTEGRITY_EVENT_TYPES.map(event => integrityPolicyRow(event, policy[event])).join('')}</tbody></table></div></section><div class="modal-actions" style="margin-top:18px"><button class="primary-btn">Save settings</button></div></form><section class="panel" style="margin-top:18px"><button class="danger-btn" data-action="admin-logout">Sign out</button></section>`;
+}
+
+function settingsPage() {
+  const logoField = `<section class="panel" style="margin-top:18px"><div class="panel-heading"><h2>Result-sheet branding</h2></div><label class="form-field">Logo image path or URL<input name="resultLogoUrl" value="${esc(state.settings?.resultLogoUrl || 'CACSA%20Logo.jpeg')}" placeholder="CACSA%20Logo.jpeg" required></label><p class="table-muted">This image appears at the top of every printable result sheet.</p></section>`;
+  return academicSettingsPage().replace('<form id="grading-form">', `<form id="grading-form">${logoField}`);
+}
+
 function gradingRow(row = {}) {
   return `<tr><td><input class="select-field" name="minScore" type="number" min="0" max="100" step="0.01" value="${esc(row.minScore ?? '')}" required></td><td><input class="select-field" name="maxScore" type="number" min="0" max="100" step="0.01" value="${esc(row.maxScore ?? '')}" required></td><td><input class="select-field" name="grade" maxlength="5" value="${esc(row.grade ?? '')}" required></td><td><input class="select-field" name="gradePoint" type="number" min="0" max="5" step="0.01" value="${esc(row.gradePoint ?? '')}" required></td><td><button type="button" class="danger-btn small-btn" data-action="remove-grade-row" aria-label="Remove grade row">Remove</button></td></tr>`;
 }
@@ -680,10 +808,54 @@ function examForm(exam = null) {
   const edit = Boolean(exam);
   openModal(edit ? 'Edit exam' : 'Create exam', `<form id="exam-form" data-id="${esc(exam?.id || '')}"><div class="alert" role="alert"></div><p class="form-help">Students can enter only while the status is <strong>Active</strong> and the current server time falls between Start and End.</p><div class="form-grid"><label class="form-field">Code<input name="code" value="${esc(exam?.code || '')}" required></label><label class="form-field">Title<input name="title" value="${esc(exam?.title || '')}" required></label><label class="form-field wide">Description<input name="description" value="${esc(exam?.description || '')}"></label><label class="form-field">Duration (minutes)<input name="duration" type="number" min="1" value="${numeric(exam?.duration, 30)}" required></label><label class="form-field">Question count<input name="questionCount" type="number" min="1" value="${numeric(exam?.questionCount, 10)}" required></label><label class="form-field">Course unit<input name="courseUnit" type="number" min="1" max="6" value="${numeric(exam?.courseUnit, 3)}" required></label><label class="form-field wide">Session / Semester<input name="session" value="${esc(exam?.session || '')}" placeholder="2025/2026 - First Semester"></label><label class="form-field">Start<input name="startAt" type="datetime-local" value="${toLocalInput(exam?.startAt)}" required></label><label class="form-field">End<input name="endAt" type="datetime-local" value="${toLocalInput(exam?.endAt)}" required></label><label class="form-field wide">Status<select class="select-field" name="status"><option value="draft" ${!exam || exam.status === 'draft' ? 'selected' : ''}>Draft</option><option value="published" ${exam?.status === 'published' ? 'selected' : ''}>Published</option><option value="active" ${exam?.status === 'active' ? 'selected' : ''}>Active</option></select></label></div><div class="modal-actions"><button class="primary-btn">Save assessment</button></div></form>`);
 }
+function academicSessionForm(session = null) {
+  openModal(session ? 'Edit academic session' : 'Create academic session', `<form id="academic-session-form" data-id="${esc(session?.id || '')}"><div class="alert" role="alert"></div><label class="form-field">Session label<input name="label" value="${esc(session?.label || '')}" placeholder="e.g. 2026/2027" required></label><label class="checkbox-field"><input type="checkbox" name="isActive" ${session?.isActive || !state.academicSessions.length ? 'checked' : ''}> Make this the active session</label><div class="modal-actions"><button class="primary-btn">Save session</button></div></form>`);
+}
+function semesterForm(semester = null) {
+  const activeSession = state.academicSessions.find(item => item.isActive)?.id || '';
+  openModal(semester ? 'Edit semester' : 'Create semester', `<form id="semester-form" data-id="${esc(semester?.id || '')}"><div class="alert" role="alert"></div><label class="form-field">Academic session<select class="select-field" name="sessionId" required>${state.academicSessions.map(session => `<option value="${esc(session.id)}" ${session.id === (semester?.sessionId || activeSession) ? 'selected' : ''}>${esc(session.label)}</option>`).join('')}</select></label><label class="form-field">Semester label<input name="label" value="${esc(semester?.label || '')}" placeholder="e.g. Harmattan Semester" required></label><div class="form-grid"><label class="form-field">Start date<input name="startDate" type="date" value="${esc(semester?.startDate || '')}" required></label><label class="form-field">End date<input name="endDate" type="date" value="${esc(semester?.endDate || '')}" required></label></div><label class="checkbox-field"><input type="checkbox" name="isActive" ${semester?.isActive || !state.semesters.length ? 'checked' : ''}> Make this the active semester for this session</label><div class="modal-actions"><button class="primary-btn">Save semester</button></div></form>`);
+}
+function courseForm(course = null) {
+  const edit = Boolean(course);
+  const activeSession = state.academicSessions.find(item => item.isActive)?.id || '';
+  const activeSemester = state.semesters.find(item => item.isActive)?.id || '';
+  const components = course?.components || [];
+  const exam = components.find(item => item.component === 'exam') || {};
+  // Legacy courses are intentionally Exam-only. Give their zero-mark Test a usable
+  // inherited window if an administrator opens the course editor, without changing it.
+  const test = components.find(item => item.component === 'test') || (course ? {maxMark: numeric(course.testMaxMark, 0), duration: exam.duration, questionCount: exam.questionCount, startAt: exam.startAt, endAt: exam.endAt, status: 'draft'} : {});
+  const dateInput = value => toLocalInput(value);
+  const componentFields = (label, key, data, maxMark) => `<fieldset class="component-fields"><legend>${label} component</legend><div class="form-grid"><label class="form-field">Maximum mark<input name="${key}MaxMark" type="number" min="0" max="100" step="0.1" value="${numeric(data.maxMark, maxMark)}" required></label><label class="form-field">Duration (minutes)<input name="${key}Duration" type="number" min="1" value="${numeric(data.duration, 30)}" required></label><label class="form-field">Question count<input name="${key}QuestionCount" type="number" min="1" value="${numeric(data.questionCount, 10)}" required></label><label class="form-field">Status<select class="select-field" name="${key}Status"><option value="draft" ${(!data.status || data.status === 'draft') ? 'selected' : ''}>Draft</option><option value="published" ${data.status === 'published' ? 'selected' : ''}>Published</option><option value="active" ${data.status === 'active' ? 'selected' : ''}>Active</option></select></label><label class="form-field">Start<input name="${key}StartAt" type="datetime-local" value="${dateInput(data.startAt)}" required></label><label class="form-field">End<input name="${key}EndAt" type="datetime-local" value="${dateInput(data.endAt)}" required></label></div></fieldset>`;
+  openModal(edit ? 'Edit course and components' : 'Create course and components', `<form id="course-form" data-id="${esc(course?.id || '')}"><div class="alert" role="alert"></div><p class="form-help">Test and Exam marks may total up to 100. Students receive distinct passwords and question banks for each component.</p><div class="form-grid"><label class="form-field">Course code<input name="code" value="${esc(course?.code || '')}" required></label><label class="form-field">Course title<input name="title" value="${esc(course?.title || '')}" required></label><label class="form-field">Course unit<input name="courseUnit" type="number" min="1" max="6" value="${numeric(course?.courseUnit, 3)}" required></label><label class="form-field">Academic session<select class="select-field" name="sessionId" required>${state.academicSessions.map(session => `<option value="${esc(session.id)}" ${session.id === (course?.sessionId || activeSession) ? 'selected' : ''}>${esc(session.label)}</option>`).join('')}</select></label><label class="form-field">Semester<select class="select-field" name="semesterId" required>${state.semesters.map(semester => `<option value="${esc(semester.id)}" ${semester.id === (course?.semesterId || activeSemester) ? 'selected' : ''}>${esc(semester.label)}</option>`).join('')}</select></label><label class="form-field wide">Description<input name="description" value="${esc(course?.description || '')}"></label></div>${componentFields('Test', 'test', test, course ? numeric(course.testMaxMark, 0) : 30)}${componentFields('Exam', 'exam', exam, course ? numeric(course.examMaxMark, 100) : 70)}<div class="modal-actions"><button class="primary-btn">Save course</button></div></form>`);
+}
+
+function courseForm(course = null) {
+  const edit = Boolean(course), components = course?.components || [];
+  const exam = components.find(item => item.component === 'exam') || {};
+  const test = components.find(item => item.component === 'test') || (course ? {maxMark: numeric(course.testMaxMark, 0), duration: exam.duration, questionCount: exam.questionCount, startAt: exam.startAt, endAt: exam.endAt, status: 'draft'} : {});
+  const activeSession = state.academicSessions.find(item => item.isActive);
+  const activeSemester = state.semesters.find(item => item.isActive);
+  const sessionLabel = state.academicSessions.find(item => item.id === course?.sessionId)?.label || activeSession?.label || '';
+  const semesterLabel = state.semesters.find(item => item.id === course?.semesterId)?.label || activeSemester?.label || 'Harmattan Semester';
+  const componentFields = (label, key, data, fallbackMark) => `<fieldset class="component-fields"><legend>${label} component</legend><div class="form-grid"><label class="form-field">Maximum mark<input name="${key}MaxMark" type="number" min="0" max="100" step="0.1" value="${numeric(data.maxMark, fallbackMark)}" required></label><label class="form-field">Duration (minutes)<input name="${key}Duration" type="number" min="1" value="${numeric(data.duration, 30)}" required></label><label class="form-field">Question count<input name="${key}QuestionCount" type="number" min="1" value="${numeric(data.questionCount, 10)}" required></label><label class="form-field">Status<select class="select-field" name="${key}Status"><option value="draft" ${(!data.status || data.status === 'draft') ? 'selected' : ''}>Draft</option><option value="published" ${data.status === 'published' ? 'selected' : ''}>Published</option><option value="active" ${data.status === 'active' ? 'selected' : ''}>Active</option></select></label><label class="form-field">Start<input name="${key}StartAt" type="datetime-local" value="${toLocalInput(data.startAt)}" required></label><label class="form-field">End<input name="${key}EndAt" type="datetime-local" value="${toLocalInput(data.endAt)}" required></label></div></fieldset>`;
+  openModal(edit ? 'Edit course and components' : 'Create course and components', `<form id="course-form" data-id="${esc(course?.id || '')}"><div class="alert" role="alert"></div><p class="form-help">Type an academic session (for example, 2026/2027). Existing values are suggested and a new one is saved automatically. Each course uses either Harmattan or Rain Semester.</p><div class="form-grid"><label class="form-field">Course code<input name="code" value="${esc(course?.code || '')}" required></label><label class="form-field">Course title<input name="title" value="${esc(course?.title || '')}" required></label><label class="form-field">Course unit<input name="courseUnit" type="number" min="1" max="6" value="${numeric(course?.courseUnit, 3)}" required></label><label class="form-field">Academic session<input name="sessionLabel" list="academic-session-labels" value="${esc(sessionLabel)}" placeholder="e.g. 2026/2027" required><datalist id="academic-session-labels">${state.academicSessions.map(item => `<option value="${esc(item.label)}">`).join('')}</datalist></label><label class="form-field">Semester<select class="select-field" name="semesterLabel" required><option value="Harmattan Semester" ${semesterLabel === 'Harmattan Semester' ? 'selected' : ''}>Harmattan Semester</option><option value="Rain Semester" ${semesterLabel === 'Rain Semester' ? 'selected' : ''}>Rain Semester</option></select></label><label class="form-field wide">Description<input name="description" value="${esc(course?.description || '')}"></label></div>${componentFields('Test', 'test', test, course ? numeric(course.testMaxMark, 0) : 30)}${componentFields('Exam', 'exam', exam, course ? numeric(course.examMaxMark, 100) : 70)}<div class="modal-actions"><button class="primary-btn">Save course</button></div></form>`);
+}
+
+function semesterForm(semester = null) {
+  const activeSession = state.academicSessions.find(item => item.isActive)?.id || '';
+  openModal(semester ? 'Edit semester' : 'Create semester', `<form id="semester-form" data-id="${esc(semester?.id || '')}"><div class="alert" role="alert"></div><label class="form-field">Academic session<select class="select-field" name="sessionId" required>${state.academicSessions.map(session => `<option value="${esc(session.id)}" ${session.id === (semester?.sessionId || activeSession) ? 'selected' : ''}>${esc(session.label)}</option>`).join('')}</select></label><label class="form-field">Semester<select class="select-field" name="label" required><option value="Harmattan Semester" ${(semester?.label || 'Harmattan Semester') === 'Harmattan Semester' ? 'selected' : ''}>Harmattan Semester</option><option value="Rain Semester" ${semester?.label === 'Rain Semester' ? 'selected' : ''}>Rain Semester</option></select></label><div class="form-grid"><label class="form-field">Start date<input name="startDate" type="date" value="${esc(semester?.startDate || '')}" required></label><label class="form-field">End date<input name="endDate" type="date" value="${esc(semester?.endDate || '')}" required></label></div><label class="checkbox-field"><input type="checkbox" name="isActive" ${semester?.isActive || !state.semesters.length ? 'checked' : ''}> Make this the active semester for this session</label><div class="modal-actions"><button class="primary-btn">Save semester</button></div></form>`);
+}
+
+function componentForm(component) {
+  if (!component) return toast('Assessment component not found.', 'error');
+  const label = component.componentLabel || component.component || 'Assessment';
+  openModal(`Edit ${label}`, `<form id="component-form" data-id="${esc(component.id)}"><div class="alert" role="alert"></div><p class="form-help">This updates only the ${esc(label)} component. It appears to students only when its status is Active and the current time is inside its window.</p><div class="form-grid"><label class="form-field">Maximum mark<input name="maxMark" type="number" min="0" max="100" step="0.1" value="${numeric(component.maxMark)}" required></label><label class="form-field">Duration (minutes)<input name="duration" type="number" min="1" value="${numeric(component.duration)}" required></label><label class="form-field">Question count<input name="questionCount" type="number" min="1" value="${numeric(component.questionCount)}" required></label><label class="form-field">Status<select class="select-field" name="status"><option value="draft" ${component.status === 'draft' ? 'selected' : ''}>Draft</option><option value="published" ${component.status === 'published' ? 'selected' : ''}>Published</option><option value="active" ${component.status === 'active' ? 'selected' : ''}>Active</option></select></label><label class="form-field">Start<input name="startAt" type="datetime-local" value="${toLocalInput(component.startAt)}" required></label><label class="form-field">End<input name="endAt" type="datetime-local" value="${toLocalInput(component.endAt)}" required></label></div><div class="modal-actions"><button class="primary-btn">Save ${esc(label)}</button></div></form>`);
+}
+
 function questionForm(question = null) {
   const edit = Boolean(question);
   const options = question?.options || [];
-  openModal(edit ? 'Edit question' : 'Add question', `<form id="question-form" data-id="${esc(question?.id || '')}"><div class="alert" role="alert"></div><label class="form-field">Assessment<select class="select-field" name="examId" required>${state.adminExams.map(exam => `<option value="${esc(exam.id)}" ${exam.id === (question?.examId || parts()[2]) ? 'selected' : ''}>${esc(exam.code)}</option>`).join('')}</select></label><label class="form-field">Question text<textarea class="math-input math-question-input" data-math-field="Question text" name="text" rows="3" required>${esc(question?.text || '')}</textarea></label>${mathKeyboard()}${[0, 1, 2, 3].map(index => `<label class="form-field">Option ${String.fromCharCode(65 + index)}<textarea class="math-input math-option-input" data-math-field="Option ${String.fromCharCode(65 + index)}" name="o${index}" rows="2" required>${esc(options[index] || '')}</textarea></label>`).join('')}<fieldset class="correct-options"><legend>Correct answer(s)</legend><p>Tick the correct option. For a multiple-answer question, tick every correct option.</p>${[0, 1, 2, 3].map(index => `<label><input type="checkbox" name="correctOptions" value="${index}" ${question?.correctOptions?.includes(index) ? 'checked' : ''}> Option ${String.fromCharCode(65 + index)}</label>`).join('')}</fieldset><label class="form-field">Type<select class="select-field" name="type"><option value="single" ${question?.type !== 'multiple' ? 'selected' : ''}>Single answer</option><option value="multiple" ${question?.type === 'multiple' ? 'selected' : ''}>Multiple answers</option></select></label><label class="form-field">Status<select class="select-field" name="status"><option value="draft" ${question?.status !== 'published' ? 'selected' : ''}>Draft</option><option value="published" ${question?.status === 'published' ? 'selected' : ''}>Published</option></select></label><div class="modal-actions"><button class="primary-btn">${edit ? 'Save changes' : 'Save question'}</button></div></form>`);
+  openModal(edit ? 'Edit question' : 'Add question', `<form id="question-form" data-id="${esc(question?.id || '')}"><div class="alert" role="alert"></div><label class="form-field">Assessment component<select class="select-field" name="examId" required>${state.adminExams.map(exam => `<option value="${esc(exam.id)}" ${exam.id === (question?.examId || parts()[2]) ? 'selected' : ''}>${esc(exam.code)} — ${esc(exam.componentLabel || exam.component || 'Exam')}</option>`).join('')}</select></label><label class="form-field">Question text<textarea class="math-input math-question-input" data-math-field="Question text" name="text" rows="3" required>${esc(question?.text || '')}</textarea></label>${mathKeyboard()}${[0, 1, 2, 3].map(index => `<label class="form-field">Option ${String.fromCharCode(65 + index)}<textarea class="math-input math-option-input" data-math-field="Option ${String.fromCharCode(65 + index)}" name="o${index}" rows="2" required>${esc(options[index] || '')}</textarea></label>`).join('')}<fieldset class="correct-options"><legend>Correct answer(s)</legend><p>Tick the correct option. For a multiple-answer question, tick every correct option.</p>${[0, 1, 2, 3].map(index => `<label><input type="checkbox" name="correctOptions" value="${index}" ${question?.correctOptions?.includes(index) ? 'checked' : ''}> Option ${String.fromCharCode(65 + index)}</label>`).join('')}</fieldset><label class="form-field">Type<select class="select-field" name="type"><option value="single" ${question?.type !== 'multiple' ? 'selected' : ''}>Single answer</option><option value="multiple" ${question?.type === 'multiple' ? 'selected' : ''}>Multiple answers</option></select></label><label class="form-field">Status<select class="select-field" name="status"><option value="draft" ${question?.status !== 'published' ? 'selected' : ''}>Draft</option><option value="published" ${question?.status === 'published' ? 'selected' : ''}>Published</option></select></label><div class="modal-actions"><button class="primary-btn">${edit ? 'Save changes' : 'Save question'}</button></div></form>`);
 }
 function bulkQuestionsForm() {
   openModal('Import questions', `<p>Paste a JSON array. Each entry needs <code>text</code>, <code>options</code> (an array of four strings), <code>correctOptions</code> (zero-based option indexes), and <code>type</code> (<code>single</code> or <code>multiple</code>). Questions are added to this course as drafts unless their status is published.</p><form id="bulk-questions-form"><div class="alert" role="alert"></div><label class="form-field">Questions JSON<textarea name="items" rows="12" spellcheck="false" required></textarea></label><div class="modal-actions"><button class="primary-btn">Import questions</button></div></form>`);
@@ -725,7 +897,10 @@ async function handleForm(event) {
   setBusy(submitButton, true);
   try {
     if (form.id === 'admin-login-form') {
-      const response = await post('admin-login', formData(form));
+      const values = formData(form);
+      const response = await post('admin-login', values);
+      if (values.remember) localStorage.setItem('algeAdminRememberedEmail', String(values.email || '').trim().toLowerCase());
+      else localStorage.removeItem('algeAdminRememberedEmail');
       state.adminToken = response.token;
       state.adminExpiresAt = response.expiresAt || '';
       state.adminUser = response.user || null;
@@ -733,10 +908,25 @@ async function handleForm(event) {
       if (response.expiresAt) sessionStorage.setItem('algeAdminExpiresAt', response.expiresAt);
       saveStored('algeAdminUser', state.adminUser);
       toast('Signed in successfully.', 'success'); navigate('admin/overview');
+    } else if (form.id === 'admin-password-reset-request-form') {
+      const values = formData(form);
+      await post('admin-password-reset-request', {email: values.email});
+      state.passwordResetEmail = String(values.email || '').trim().toLowerCase();
+      sessionStorage.setItem('algeAdminPasswordResetEmail', state.passwordResetEmail);
+      toast('A six-digit password reset code was sent to your email address.', 'success');
+      navigate('admin/reset-password');
+    } else if (form.id === 'admin-password-reset-confirm-form') {
+      const values = formData(form);
+      if (values.password !== values.confirmPassword) throw new Error('The new passwords do not match.');
+      await post('admin-password-reset-confirm', {email: values.email, code: values.code, password: values.password});
+      state.passwordResetEmail = '';
+      sessionStorage.removeItem('algeAdminPasswordResetEmail');
+      sessionStorage.setItem('algeAdminAuthNotice', 'Password reset successful. Your account is suspended until a Superadmin reactivates it.');
+      navigate('admin/login');
     } else if (form.id === 'admin-registration-form') {
       const values = formData(form);
       if (values.password !== values.confirmPassword) throw new Error('The passwords do not match.');
-      await post('admin-registration', {name: values.name, email: values.email, password: values.password});
+      await post('admin-registration', {name: values.name, email: values.email, phoneNumber: values.phoneNumber, password: values.password});
       form.reset();
       toast('Your request was sent for Superadmin approval. You will receive an email when access is approved.', 'success');
     } else if (form.id === 'account-profile-form') {
@@ -777,6 +967,30 @@ async function handleForm(event) {
       const response = await post('exam-password', formData(form));
       openModal('Exam password generated', `<p>Give this password to ${esc(response.student?.fullName)} for ${esc(response.exam?.code)}.</p><div class="instruction-box"><strong class="generated-password">${esc(response.password)}</strong>This password is shown only now. Copy it before closing.</div><div class="modal-actions"><button class="primary-btn" data-action="close-modal">Done</button></div>`);
       toast('Exam password generated.', 'success');
+    } else if (form.id === 'academic-session-form') {
+      const values = formData(form), id = form.dataset.id;
+      values.isActive = form.elements.isActive.checked;
+      if (id) await put('academic-sessions', values, {id}); else await post('academic-sessions', values);
+      closeModal(); toast(id ? 'Academic session updated.' : 'Academic session created.', 'success'); render();
+    } else if (form.id === 'semester-form') {
+      const values = formData(form), id = form.dataset.id;
+      values.isActive = form.elements.isActive.checked;
+      if (values.endDate < values.startDate) throw new Error('The semester end date must not be before its start date.');
+      if (id) await put('semesters', values, {id}); else await post('semesters', values);
+      closeModal(); toast(id ? 'Semester updated.' : 'Semester created.', 'success'); render();
+    } else if (form.id === 'component-form') {
+      const values = formData(form);
+      values.startAt = new Date(values.startAt).toISOString(); values.endAt = new Date(values.endAt).toISOString();
+      if (new Date(values.startAt) >= new Date(values.endAt)) throw new Error('The component end time must be later than its start time.');
+      await put('course-components', values, {id: form.dataset.id});
+      closeModal(); toast('Assessment component updated.', 'success'); render();
+    } else if (form.id === 'course-form') {
+      const values = formData(form), id = form.dataset.id;
+      for (const key of ['testStartAt', 'testEndAt', 'examStartAt', 'examEndAt']) values[key] = new Date(values[key]).toISOString();
+      if (new Date(values.testStartAt) >= new Date(values.testEndAt) || new Date(values.examStartAt) >= new Date(values.examEndAt)) throw new Error('Each component needs an end time later than its start time.');
+      if (numeric(values.testMaxMark) + numeric(values.examMaxMark) > 100 || numeric(values.testMaxMark) + numeric(values.examMaxMark) <= 0) throw new Error('Test and Exam maximum marks must total more than 0 and not exceed 100.');
+      if (id) await put('courses', values, {id}); else await post('courses', values);
+      closeModal(); toast(id ? 'Course and components updated.' : 'Course and components created.', 'success'); render();
     } else if (form.id === 'exam-form') {
       const value = formData(form), id = form.dataset.id;
       if (new Date(value.startAt) >= new Date(value.endAt)) throw new Error('The end must be later than the start.');
@@ -805,7 +1019,7 @@ async function handleForm(event) {
       const gradingScale = rows.map(row => Object.fromEntries([...row.querySelectorAll('input')].map(input => [input.name, ['minScore', 'maxScore', 'gradePoint'].includes(input.name) ? Number(input.value) : input.value.trim()])));
       if (!gradingScale.length) throw new Error('Add at least one grade band.');
       const integrityPolicy = Object.fromEntries([...form.querySelectorAll('.integrity-policy-row')].map(row => [row.dataset.event, {mode: row.querySelector('[name="mode"]').value, lockAfter: Number(row.querySelector('[name="lockAfter"]').value)}]));
-      await put('settings', {gradingScale, integrityPolicy});
+      await put('settings', {gradingScale, integrityPolicy, resultLogoUrl: String(form.elements.resultLogoUrl?.value || 'CACSA%20Logo.jpeg').trim()});
       toast('Settings saved. Existing results were recalculated.', 'success'); render();
     } else if (form.id === 'audit-filter-form') {
       const values = formData(form);
@@ -854,8 +1068,24 @@ async function handleForm(event) {
 async function handleAction(button) {
   const action = button.dataset.action;
   const id = button.dataset.id;
+  if (action === 'toggle-theme') {
+    state.theme = state.theme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('algeTheme', state.theme);
+    applyTheme(state.theme);
+    document.querySelectorAll('[data-action="toggle-theme"]').forEach(control => {
+      const dark = state.theme === 'dark';
+      control.setAttribute('aria-label', `Switch to ${dark ? 'light' : 'dark'} theme`);
+      control.setAttribute('title', `Switch to ${dark ? 'light' : 'dark'} theme`);
+      control.innerHTML = `<span aria-hidden="true">${dark ? '☀' : '☾'}</span><span>${dark ? 'Light' : 'Dark'}</span>`;
+    });
+    return;
+  }
   if (action === 'retry') return render();
   if (action === 'refresh-exams') return render();
+  if (action === 'refresh-audit') return render();
+  if (action === 'export-audit-csv') return downloadAuditExport('csv');
+  if (action === 'export-audit-excel') return downloadAuditExport('excel');
+  if (action === 'export-audit-pdf' || action === 'print-audit') { window.print(); return; }
   if (action === 'close-modal') return closeModal();
   if (action === 'clear-audit-filter') { state.filters.audit = {from: '', to: '', actor: '', type: '', course: '', page: 1}; return render(); }
   if (action === 'audit-session-detail') {
@@ -865,6 +1095,15 @@ async function handleAction(button) {
     return openModal(`${session.studentName} · ${session.course}`, `<p class="table-muted">${esc(session.matricNumber)} · ${esc(session.ipAddress)} · ${esc(session.status)}</p><h3 style="margin-top:22px">Integrity events</h3>${events.length ? `<div class="table-scroll"><table class="data-table"><thead><tr><th>Timestamp</th><th>Event</th><th>Response</th></tr></thead><tbody>${events.map(event => `<tr><td class="table-muted">${fmtDate(event.at || event.timestamp)}</td><td>${esc(String(event.event || event.flagType || '').replaceAll('_', ' '))}</td><td><span class="status-pill ${event.resultingAction === 'locked' ? 'status-danger' : event.resultingAction === 'warn' ? 'status-warning' : ''}">${esc(event.resultingAction || 'logged')}</span></td></tr>`).join('')}</tbody></table></div>` : emptyState('No integrity events have been recorded for this session.')}`);
   }
   if (action === 'new-admin-user') return adminUserForm();
+  if (action === 'toggle-sidebar') {
+    state.sidebarOpen = !state.sidebarOpen;
+    sessionStorage.setItem('algeSidebarOpen', String(state.sidebarOpen));
+    const shell = document.querySelector('.admin-shell');
+    shell?.classList.toggle('sidebar-collapsed', !state.sidebarOpen);
+    button.setAttribute('aria-expanded', String(state.sidebarOpen));
+    button.setAttribute('aria-label', state.sidebarOpen ? 'Close sidebar' : 'Open sidebar');
+    return;
+  }
   if (action === 'toggle-account-menu') {
     const menu = button.parentElement?.querySelector('.account-menu');
     if (!menu) return;
@@ -934,6 +1173,45 @@ async function handleAction(button) {
   if (action === 'bulk-students') return bulkStudentsForm();
   if (action === 'edit-student') return studentForm(state.students.find(item => item.id === id));
   if (action === 'student-password') return passwordForm(state.students.find(item => item.id === id));
+  if (action === 'new-academic-session') return academicSessionForm();
+  if (action === 'edit-academic-session') return academicSessionForm(state.academicSessions.find(item => item.id === id));
+  if (action === 'new-semester') {
+    if (!state.academicSessions.length) return toast('Create an academic session before adding a semester.', 'error');
+    return semesterForm();
+  }
+  if (action === 'edit-semester') return semesterForm(state.semesters.find(item => item.id === id));
+  if (action === 'delete-academic-session') {
+    const item = state.academicSessions.find(session => session.id === id);
+    return confirmAction('Delete academic session', `Delete ${item?.label || 'this session'}? Sessions that contain semesters or courses cannot be deleted.`, 'Delete session', async () => { await remove('academic-sessions', {id}); toast('Academic session deleted.', 'success'); render(); });
+  }
+  if (action === 'delete-semester') {
+    const item = state.semesters.find(semester => semester.id === id);
+    return confirmAction('Delete semester', `Delete ${item?.label || 'this semester'}? Semesters that contain courses cannot be deleted.`, 'Delete semester', async () => { await remove('semesters', {id}); toast('Semester deleted.', 'success'); render(); });
+  }
+  if (action === 'new-course') {
+    if (!state.academicSessions.length || !state.semesters.length) return toast('Create an academic session and semester in Settings first.', 'error');
+    return courseForm();
+  }
+  if (action === 'edit-course') return courseForm(state.courses.find(course => course.id === id));
+  if (action === 'delete-course') {
+    const course = state.courses.find(item => item.id === id);
+    return confirmAction('Delete course', `Delete ${course?.code || 'this course'} and its Test/Exam question banks? Courses with submitted results cannot be deleted.`, 'Delete course', async () => { await remove('courses', {id}); toast('Course deleted.', 'success'); render(); });
+  }
+  if (action === 'edit-component') return componentForm(state.courses.flatMap(course => course.components || []).find(component => component.id === id));
+  if (action === 'component-status') {
+    const component = state.courses.flatMap(course => course.components || []).find(item => item.id === id);
+    if (!component) return;
+    setBusy(button, true);
+    try {
+      await put('course-components', {...component, status: button.dataset.status}, {id});
+      toast(`Component ${button.dataset.status === 'active' ? 'activated' : button.dataset.status === 'published' ? 'published' : 'deactivated'}.`, 'success'); render();
+    } catch (error) { showError(error); } finally { if (button.isConnected) setBusy(button, false); }
+    return;
+  }
+  if (action === 'delete-component') {
+    const component = state.courses.flatMap(course => course.components || []).find(item => item.id === id);
+    return confirmAction(`Delete ${component?.componentLabel || 'component'}`, `Delete this ${component?.componentLabel || 'assessment'} and its question bank? Submitted-result components cannot be deleted.`, 'Delete component', async () => { await remove('course-components', {id}); toast('Assessment component deleted.', 'success'); render(); });
+  }
   if (action === 'new-exam') return examForm();
   if (action === 'edit-exam') return examForm(state.adminExams.find(item => item.id === id));
   if (action === 'new-question') return questionForm();
@@ -941,7 +1219,7 @@ async function handleAction(button) {
   if (action === 'bulk-questions') return bulkQuestionsForm();
   if (action === 'admin-logout') {
     try { await post('admin-logout', {}); } catch { /* Local sign out still revokes this browser's access. */ }
-    clearAdmin(); navigate('admin/login'); toast('Signed out.', 'success'); return;
+    clearAdmin(); sessionStorage.setItem('algeAdminAuthNotice', 'You have been logged out successfully.'); navigate('admin/login'); return;
   }
   if (action === 'add-grade-row') { document.querySelector('#grading-rows')?.insertAdjacentHTML('beforeend', gradingRow()); return; }
   if (action === 'remove-grade-row') { button.closest('tr')?.remove(); return; }
@@ -976,9 +1254,10 @@ async function handleAction(button) {
     catch (error) { showError(error); } finally { if (button.isConnected) setBusy(button, false); }
     return;
   }
+  if (action === 'print-result-sheet') { window.print(); return; }
   if (action === 'export-csv') {
     try {
-      const response = await fetch(query('student-results-csv', {id: parts()[2]}), {headers: {Authorization: `Bearer ${state.adminToken}`}});
+      const response = await fetch(query('student-results-csv', {id: parts()[2], sessionId: parts()[3] || '', semesterId: parts()[4] || ''}), {headers: {Authorization: `Bearer ${state.adminToken}`}});
       if (!response.ok) throw new Error('Could not export this result sheet.');
       const blob = await response.blob(), url = URL.createObjectURL(blob), link = document.createElement('a');
       link.href = url; link.download = `${state.report?.student?.matricNumber || 'student'}-result-sheet.csv`; link.click();
@@ -1135,6 +1414,6 @@ window.addEventListener('blur', () => logIntegrity('blur'));
 document.addEventListener('contextmenu', event => { if (parts()[1] === 'exam' && state.attempt?.session?.id) { event.preventDefault(); logIntegrity('context_menu'); } });
 document.addEventListener('copy', event => { if (parts()[1] === 'exam' && state.attempt?.session?.id) { event.preventDefault(); logIntegrity('copy'); } });
 document.addEventListener('paste', event => { if (parts()[1] === 'exam' && state.attempt?.session?.id) { event.preventDefault(); logIntegrity('paste'); } });
-window.addEventListener('hashchange', render);
-if (!location.hash) history.replaceState(null, '', '#student/selection');
+window.addEventListener('popstate', render);
+if (!/\/(?:admin|student)(?:\/|$)/.test(location.pathname)) history.replaceState(null, '', `${APP_BASE}/student/selection`);
 render();

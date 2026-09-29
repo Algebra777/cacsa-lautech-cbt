@@ -1,3 +1,12 @@
+Options -MultiViews
+RewriteEngine On
+
+# Clean client-side routes. Existing files (including api.php and assets) continue
+# to be served normally; admin/student paths load the single-page application.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(?:admin|student)(?:/.*)?$ index.html [L]
+
 <Files "cbt-data.json">
     Require all denied
 </Files>

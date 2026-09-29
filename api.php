@@ -70,8 +70,8 @@ const NEWSLETTER_SENDER_NAME = 'CACSA LAUTECH';
 const ADMIN_PERMISSIONS = ['overview', 'students', 'exams', 'questions', 'results', 'audit', 'newsletter', 'settings', 'roles'];
 const DEFAULT_ROLES = [
     ['id' => 'superadmin', 'name' => 'Superadmin', 'description' => 'Full system access and administrator management.', 'maxUsers' => 1, 'systemLocked' => true, 'permissions' => ADMIN_PERMISSIONS],
-    ['id' => 'academic_coordinator', 'name' => 'Academic Coordinator', 'description' => 'Manages assessments, questions, students, results, audit monitoring, and newsletters.', 'maxUsers' => 5, 'systemLocked' => false, 'permissions' => ['overview', 'students', 'exams', 'questions', 'results', 'audit', 'newsletter']],
-    ['id' => 'assistant_academic_coordinator', 'name' => 'Assistant Academic Coordinator', 'description' => 'Supports student, assessment, question, results, and newsletter administration.', 'maxUsers' => 10, 'systemLocked' => false, 'permissions' => ['overview', 'students', 'exams', 'questions', 'results', 'newsletter']]
+    ['id' => 'academic_coordinator', 'name' => 'Academic Coordinator', 'description' => 'Manages courses, Test/Exam components, students, results, audit monitoring, settings, and newsletters.', 'maxUsers' => 5, 'systemLocked' => false, 'permissions' => ['overview', 'students', 'exams', 'questions', 'results', 'audit', 'newsletter', 'settings']],
+    ['id' => 'assistant_academic_coordinator', 'name' => 'Assistant Academic Coordinator', 'description' => 'Supports courses, Test/Exam components, students, results, audit monitoring, settings, and newsletters.', 'maxUsers' => 10, 'systemLocked' => false, 'permissions' => ['overview', 'students', 'exams', 'questions', 'results', 'audit', 'newsletter', 'settings']]
 ];
 
 function respond(mixed $data, int $status = 200): never {
@@ -94,6 +94,9 @@ function loadData(): array {
     if (!file_exists(DATA_FILE)) {
         $data = [
             'students' => [],
+            'academicSessions' => [],
+            'semesters' => [],
+            'courses' => [],
             'exams' => [],
             'questions' => [],
             'passwords' => [],
@@ -109,6 +112,7 @@ function loadData(): array {
             'pendingAdminRequests' => [],
             'adminProfileOverrides' => [],
             'adminEmailVerifications' => [],
+            'adminPasswordResets' => [],
             'adminUserActivity' => [],
             'newsletterSubscribers' => [],
             'newsletters' => [],
@@ -120,7 +124,7 @@ function loadData(): array {
     $data = json_decode(file_get_contents(DATA_FILE), true);
     if (!is_array($data)) respond(['error' => 'The data file could not be read. Restore a valid backup before continuing.'], 500);
     $migrated = false; $now = time();
-    foreach (['students', 'exams', 'questions', 'passwords', 'sessions', 'results', 'auditEvents', 'examFlags', 'roles', 'adminUsers', 'pendingAdminRequests', 'newsletterSubscribers', 'newsletters'] as $collection) {
+    foreach (['students', 'academicSessions', 'semesters', 'courses', 'exams', 'questions', 'passwords', 'sessions', 'results', 'auditEvents', 'examFlags', 'roles', 'adminUsers', 'pendingAdminRequests', 'newsletterSubscribers', 'newsletters'] as $collection) {
         if (!isset($data[$collection]) || !is_array($data[$collection])) { $data[$collection] = []; $migrated = true; }
     }
     if (!isset($data['loginTokens']) || !is_array($data['loginTokens'])) { $data['loginTokens'] = []; $migrated = true; }
@@ -129,12 +133,21 @@ function loadData(): array {
     if (!isset($data['adminUserActivity']) || !is_array($data['adminUserActivity'])) { $data['adminUserActivity'] = []; $migrated = true; }
     if (!isset($data['adminProfileOverrides']) || !is_array($data['adminProfileOverrides'])) { $data['adminProfileOverrides'] = []; $migrated = true; }
     if (!isset($data['adminEmailVerifications']) || !is_array($data['adminEmailVerifications'])) { $data['adminEmailVerifications'] = []; $migrated = true; }
-    if (!isset($data['settings']) || !is_array($data['settings'])) { $data['settings'] = ['gradingScale' => DEFAULT_GRADING_SCALE, 'integrityPolicy' => DEFAULT_INTEGRITY_POLICY]; $migrated = true; }
+    if (!isset($data['adminPasswordResets']) || !is_array($data['adminPasswordResets'])) { $data['adminPasswordResets'] = []; $migrated = true; }
+    if (!isset($data['settings']) || !is_array($data['settings'])) { $data['settings'] = ['gradingScale' => DEFAULT_GRADING_SCALE, 'integrityPolicy' => DEFAULT_INTEGRITY_POLICY, 'resultLogoUrl' => 'CACSA%20Logo.jpeg']; $migrated = true; }
     if (!isset($data['settings']['gradingScale']) || !is_array($data['settings']['gradingScale'])) { $data['settings']['gradingScale'] = DEFAULT_GRADING_SCALE; $migrated = true; }
     if (!isset($data['settings']['integrityPolicy']) || !is_array($data['settings']['integrityPolicy'])) { $data['settings']['integrityPolicy'] = DEFAULT_INTEGRITY_POLICY; $migrated = true; }
+    if (!isset($data['settings']['resultLogoUrl']) || !is_string($data['settings']['resultLogoUrl'])) { $data['settings']['resultLogoUrl'] = 'CACSA%20Logo.jpeg'; $migrated = true; }
     if (!$data['roles']) { $data['roles'] = DEFAULT_ROLES; $migrated = true; }
     // Newsletter access is intentionally available to every administrator role.
-    foreach ($data['roles'] as &$role) if (!in_array('newsletter', $role['permissions'] ?? [], true)) { $role['permissions'][] = 'newsletter'; $migrated = true; }
+    foreach ($data['roles'] as &$role) {
+        if (!in_array('newsletter', $role['permissions'] ?? [], true)) { $role['permissions'][] = 'newsletter'; $migrated = true; }
+        if (in_array(($role['id'] ?? ''), ['academic_coordinator', 'assistant_academic_coordinator'], true)) {
+            foreach (['audit', 'settings'] as $permission) if (!in_array($permission, $role['permissions'], true)) { $role['permissions'][] = $permission; $migrated = true; }
+            $defaultRole = findBy(DEFAULT_ROLES, 'id', (string)$role['id']);
+            if ($defaultRole && ($role['description'] ?? '') !== $defaultRole['description']) { $role['description'] = $defaultRole['description']; $migrated = true; }
+        }
+    }
     unset($role);
     // Existing registered students become subscribers on upgrade as well as on future registration.
     foreach ($data['students'] as &$student) {
@@ -180,8 +193,11 @@ function loadData(): array {
     if (count($liveAdminSessions) !== count($data['adminSessions'])) { $data['adminSessions'] = $liveAdminSessions; $migrated = true; }
     $liveRateLimits = array_filter($data['rateLimits'], fn($item) => is_array($item) && (int)($item['resetAt'] ?? 0) > $now);
     if (count($liveRateLimits) !== count($data['rateLimits'])) { $data['rateLimits'] = $liveRateLimits; $migrated = true; }
+    $livePasswordResets = array_values(array_filter($data['adminPasswordResets'], fn($item) => is_array($item) && !empty($item['codeHash']) && strtotime((string)($item['expiresAt'] ?? '')) > $now));
+    if (count($livePasswordResets) !== count($data['adminPasswordResets'])) { $data['adminPasswordResets'] = $livePasswordResets; $migrated = true; }
     foreach ($data['exams'] as &$exam) { if (!array_key_exists('courseUnit', $exam)) { $exam['courseUnit'] = 3; $migrated = true; } if (!array_key_exists('session', $exam)) { $exam['session'] = ''; $migrated = true; } }
     unset($exam);
+    if (migrateAcademicStructure($data)) $migrated = true;
     foreach ($data['questions'] as &$question) if (!array_key_exists('status', $question)) { $question['status'] = 'published'; $migrated = true; }
     unset($question);
     if ($migrated) saveData($data);
@@ -251,8 +267,9 @@ function requiredPermission(): ?string {
     $action = (string)($_GET['action'] ?? '');
     return match ($action) {
         'students', 'students-bulk', 'exam-password', 'student-results', 'student-results-csv' => 'students',
-        'exams' => 'exams', 'questions', 'questions-bulk' => 'questions', 'results', 'result-review' => 'results',
+        'exams', 'courses', 'course-components' => 'exams', 'questions', 'questions-bulk' => 'questions', 'results', 'result-review' => 'results',
         'audit-monitor', 'audit-events' => 'audit', 'newsletter-subscribers', 'newsletters' => 'newsletter', 'settings' => 'settings', 'roles', 'admin-users', 'admin-approvals' => 'roles',
+        'academic-sessions', 'semesters' => 'settings',
         'dashboard' => 'overview', default => null
     };
 }
@@ -277,6 +294,44 @@ function adminActorId(): string {
 function findBy(array $items, string $key, mixed $value): ?array {
     foreach ($items as $item) if (($item[$key] ?? null) === $value) return $item;
     return null;
+}
+function migrateAcademicStructure(array &$data): bool {
+    $changed = false;
+    // Approved legacy migration: retain all earlier scores as 100-mark Exam components
+    // in the 2026/2027 Harmattan Semester, without inventing Test submissions.
+    if ($data['exams'] && !$data['academicSessions']) {
+        $data['academicSessions'][] = ['id' => 'session-2026-2027', 'label' => '2026/2027', 'isActive' => true, 'createdAt' => date('c')];
+        $changed = true;
+    }
+    if ($data['exams'] && !$data['semesters']) {
+        $data['semesters'][] = ['id' => 'semester-harmattan-2026-2027', 'sessionId' => 'session-2026-2027', 'label' => 'Harmattan Semester', 'isActive' => true, 'startDate' => '2026-09-01', 'endDate' => '2027-02-28', 'createdAt' => date('c')];
+        $changed = true;
+    }
+    foreach ($data['exams'] as &$exam) {
+        if (!empty($exam['courseId'])) continue;
+        $courseId = 'legacy-course-' . (string)$exam['id'];
+        $exam['courseId'] = $courseId;
+        $exam['component'] = 'exam';
+        $exam['maxMark'] = 100;
+        $exam['sessionId'] = 'session-2026-2027';
+        $exam['semesterId'] = 'semester-harmattan-2026-2027';
+        $exam['legacyExamOnly'] = true;
+        $data['courses'][] = ['id' => $courseId, 'code' => $exam['code'], 'title' => $exam['title'], 'description' => $exam['description'] ?? '', 'courseUnit' => (int)($exam['courseUnit'] ?? 3), 'sessionId' => $exam['sessionId'], 'semesterId' => $exam['semesterId'], 'testMaxMark' => 0, 'examMaxMark' => 100, 'legacyExamOnly' => true, 'createdAt' => $exam['createdAt'] ?? date('c')];
+        $changed = true;
+    }
+    unset($exam);
+    foreach ($data['results'] as &$result) {
+        $exam = findBy($data['exams'], 'id', (string)($result['examId'] ?? ''));
+        if (!$exam) continue;
+        if (!isset($result['courseId'])) { $result['courseId'] = $exam['courseId'] ?? ''; $changed = true; }
+        if (!isset($result['component'])) { $result['component'] = $exam['component'] ?? 'exam'; $changed = true; }
+        if (!isset($result['rawScore'])) { $result['rawScore'] = (float)($result['score'] ?? 0); $changed = true; }
+        if (!isset($result['scaledScore'])) { $result['scaledScore'] = (float)($result['score'] ?? 0); $changed = true; }
+        if (!isset($result['academicSessionId'])) { $result['academicSessionId'] = $exam['sessionId'] ?? ''; $changed = true; }
+        if (!isset($result['academicSemesterId'])) { $result['academicSemesterId'] = $exam['semesterId'] ?? ''; $changed = true; }
+    }
+    unset($result);
+    return $changed;
 }
 function replaceBy(array &$items, string $key, mixed $value, array $replacement): bool {
     foreach ($items as $index => $item) if (($item[$key] ?? null) === $value) { $items[$index] = $replacement; return true; }
@@ -308,6 +363,8 @@ function currentAdminAccount(array $data, array $session): ?array {
 }
 function publicAccount(array $account, array $data): array {
     $result = publicAdminUser($account, $data['roles'], $data['adminUserActivity']);
+    $role = findBy($data['roles'], 'id', (string)($account['roleId'] ?? ''));
+    $result['permissions'] = $role['permissions'] ?? [];
     $pending = findBy($data['adminEmailVerifications'], 'userId', (string)$account['id']);
     $result['pendingEmail'] = $pending && strtotime((string)($pending['expiresAt'] ?? '')) > time() ? ($pending['email'] ?? null) : null;
     $result['emailManagedByEnvironment'] = !empty($account['emailManagedByEnvironment']);
@@ -410,7 +467,7 @@ function validateAdminUser(array $input, array $data, ?string $currentId = null,
     $name = requireText($input['name'] ?? null, 'Administrator name'); $email = strtolower(requireText($input['email'] ?? null, 'Administrator email'));
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) respond(['error' => 'Enter a valid administrator email.'], 422);
     foreach ($data['adminUsers'] as $user) if (($user['id'] ?? '') !== $currentId && strcasecmp((string)$user['email'], $email) === 0) respond(['error' => 'That administrator email is already in use.'], 409);
-    if (strcasecmp($email, getenv('CBT_ADMIN_EMAIL') ?: DEV_ADMIN_EMAIL) === 0) respond(['error' => 'The bootstrap Superadmin email is reserved.'], 409);
+    if (strcasecmp($email, (string)bootstrapAdminAccount($data)['email']) === 0) respond(['error' => 'The bootstrap Superadmin email is reserved.'], 409);
     $roleId = (string)($input['roleId'] ?? ''); $role = findBy($data['roles'], 'id', $roleId); if (!$role) respond(['error' => 'Choose a valid role.'], 422);
     $result = ['name' => $name, 'email' => $email, 'roleId' => $roleId];
     $password = (string)($input['password'] ?? '');
@@ -421,13 +478,16 @@ function validateAdminUser(array $input, array $data, ?string $currentId = null,
 function validateAdminRegistration(array $input, array $data): array {
     $name = requireText($input['name'] ?? null, 'Full name');
     $email = strtolower(requireText($input['email'] ?? null, 'Email'));
+    $phoneNumber = requireText($input['phoneNumber'] ?? null, 'Phone number', 32);
     $password = (string)($input['password'] ?? '');
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) respond(['error' => 'Enter a valid email address.'], 422);
+    $phoneDigits = preg_replace('/\D+/', '', $phoneNumber);
+    if (!preg_match('/^[0-9+()\-\s.]+$/', $phoneNumber) || strlen((string)$phoneDigits) < 7 || strlen((string)$phoneDigits) > 16) respond(['error' => 'Enter a valid phone number.'], 422);
     if (strlen($password) < 8) respond(['error' => 'Use a password with at least 8 characters.'], 422);
-    if (strcasecmp($email, getenv('CBT_ADMIN_EMAIL') ?: DEV_ADMIN_EMAIL) === 0) respond(['error' => 'This email is reserved for the Superadmin account.'], 409);
+    if (strcasecmp($email, (string)bootstrapAdminAccount($data)['email']) === 0) respond(['error' => 'This email is reserved for the Superadmin account.'], 409);
     foreach ($data['adminUsers'] as $user) if (strcasecmp((string)($user['email'] ?? ''), $email) === 0) respond(['error' => 'An administrator account already uses this email.'], 409);
     foreach ($data['pendingAdminRequests'] as $request) if (strcasecmp((string)($request['email'] ?? ''), $email) === 0 && ($request['status'] ?? 'pending') === 'pending') respond(['error' => 'A request for this email is already awaiting approval.'], 409);
-    return ['name' => $name, 'email' => $email, 'passwordHash' => password_hash($password, PASSWORD_DEFAULT)];
+    return ['name' => $name, 'email' => $email, 'phoneNumber' => $phoneNumber, 'passwordHash' => password_hash($password, PASSWORD_DEFAULT)];
 }
 function publicAdminRequest(array $request, array $roles): array {
     unset($request['passwordHash']);
@@ -467,6 +527,81 @@ function validateExam(array $input, array $data, ?string $currentId = null): arr
     $status = (string)($input['status'] ?? 'draft');
     if (!in_array($status, ['draft', 'published', 'active'], true)) respond(['error' => 'Status must be draft, published, or active.'], 422);
     return ['code' => $code, 'title' => $title, 'description' => trim((string)($input['description'] ?? '')), 'duration' => $duration, 'questionCount' => $count, 'courseUnit' => $unit, 'session' => trim((string)($input['session'] ?? '')), 'startAt' => date('c', strtotime($start)), 'endAt' => date('c', strtotime($end)), 'status' => $status];
+}
+function validateAcademicSession(array $input, array $data, ?string $currentId = null): array {
+    $label = requireText($input['label'] ?? null, 'Academic session', 50);
+    foreach ($data['academicSessions'] as $item) if (($item['id'] ?? '') !== $currentId && strcasecmp((string)$item['label'], $label) === 0) respond(['error' => 'That academic session already exists.'], 409);
+    return ['label' => $label, 'isActive' => !empty($input['isActive'])];
+}
+function validateSemester(array $input, array $data, ?string $currentId = null): array {
+    $sessionId = (string)($input['sessionId'] ?? '');
+    if (!findBy($data['academicSessions'], 'id', $sessionId)) respond(['error' => 'Choose an existing academic session.'], 422);
+    $label = requireText($input['label'] ?? null, 'Semester label', 100);
+    if (!in_array($label, ['Harmattan Semester', 'Rain Semester'], true)) respond(['error' => 'Semester must be Harmattan Semester or Rain Semester.'], 422);
+    $startDate = (string)($input['startDate'] ?? ''); $endDate = (string)($input['endDate'] ?? '');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDate) || strtotime($endDate) < strtotime($startDate)) respond(['error' => 'Provide a valid semester start and end date.'], 422);
+    foreach ($data['semesters'] as $item) if (($item['id'] ?? '') !== $currentId && ($item['sessionId'] ?? '') === $sessionId && strcasecmp((string)$item['label'], $label) === 0) respond(['error' => 'That semester label already exists for this session.'], 409);
+    return ['sessionId' => $sessionId, 'label' => $label, 'isActive' => !empty($input['isActive']), 'startDate' => $startDate, 'endDate' => $endDate];
+}
+function ensureCoursePeriod(array &$data, array &$input): void {
+    $sessionLabel = trim((string)($input['sessionLabel'] ?? ''));
+    if ($sessionLabel === '' && !empty($input['sessionId'])) $sessionLabel = (string)(findBy($data['academicSessions'], 'id', (string)$input['sessionId'])['label'] ?? '');
+    $sessionLabel = requireText($sessionLabel, 'Academic session', 50);
+    $session = null;
+    foreach ($data['academicSessions'] as $item) if (strcasecmp((string)$item['label'], $sessionLabel) === 0) { $session = $item; break; }
+    if (!$session) {
+        $session = ['id' => id(), 'label' => $sessionLabel, 'isActive' => !$data['academicSessions'], 'createdAt' => date('c')];
+        $data['academicSessions'][] = $session;
+        auditEvent($data, 'admin', adminActorId(), 'academic_session_created', 'academic_session', $session['id'], ['label' => $sessionLabel, 'source' => 'course_form']);
+    }
+    $semesterLabel = trim((string)($input['semesterLabel'] ?? ''));
+    if ($semesterLabel === '' && !empty($input['semesterId'])) $semesterLabel = (string)(findBy($data['semesters'], 'id', (string)$input['semesterId'])['label'] ?? '');
+    if (!in_array($semesterLabel, ['Harmattan Semester', 'Rain Semester'], true)) respond(['error' => 'Choose either Harmattan Semester or Rain Semester.'], 422);
+    $semester = null;
+    foreach ($data['semesters'] as $item) if (($item['sessionId'] ?? '') === $session['id'] && strcasecmp((string)$item['label'], $semesterLabel) === 0) { $semester = $item; break; }
+    if (!$semester) {
+        preg_match('/(\d{4})/', $sessionLabel, $yearMatch); $startYear = (int)($yearMatch[1] ?? date('Y'));
+        $dates = $semesterLabel === 'Harmattan Semester'
+            ? ['startDate' => sprintf('%04d-09-01', $startYear), 'endDate' => sprintf('%04d-02-28', $startYear + 1)]
+            : ['startDate' => sprintf('%04d-03-01', $startYear + 1), 'endDate' => sprintf('%04d-08-31', $startYear + 1)];
+        $semester = ['id' => id(), 'sessionId' => $session['id'], 'label' => $semesterLabel, 'isActive' => !array_filter($data['semesters'], fn($item) => ($item['sessionId'] ?? '') === $session['id'] && !empty($item['isActive']))] + $dates + ['createdAt' => date('c')];
+        $data['semesters'][] = $semester;
+        auditEvent($data, 'admin', adminActorId(), 'semester_created', 'semester', $semester['id'], ['label' => $semesterLabel, 'source' => 'course_form']);
+    }
+    $input['sessionId'] = $session['id']; $input['semesterId'] = $semester['id'];
+}
+function componentValues(array $input, string $prefix, float $maxMark): array {
+    $duration = filter_var($input[$prefix . 'Duration'] ?? null, FILTER_VALIDATE_INT); $count = filter_var($input[$prefix . 'QuestionCount'] ?? null, FILTER_VALIDATE_INT);
+    $start = (string)($input[$prefix . 'StartAt'] ?? ''); $end = (string)($input[$prefix . 'EndAt'] ?? ''); $status = (string)($input[$prefix . 'Status'] ?? 'draft');
+    if ($duration === false || $duration < 1 || $duration > 1440 || $count === false || $count < 1 || $count > 500) respond(['error' => ucfirst($prefix) . ' duration and question count must be valid.'], 422);
+    if (strtotime($start) === false || strtotime($end) === false || strtotime($end) <= strtotime($start)) respond(['error' => ucfirst($prefix) . ' end time must be later than its start time.'], 422);
+    if (!in_array($status, ['draft', 'published', 'active'], true)) respond(['error' => 'Choose a valid ' . $prefix . ' status.'], 422);
+    return ['maxMark' => $maxMark, 'duration' => $duration, 'questionCount' => $count, 'startAt' => date('c', strtotime($start)), 'endAt' => date('c', strtotime($end)), 'status' => $status];
+}
+function validateCourseComponent(array $input, array $course, array $component): array {
+    $maxMark = filter_var($input['maxMark'] ?? null, FILTER_VALIDATE_FLOAT);
+    if ($maxMark === false || $maxMark < 0 || $maxMark > 100) respond(['error' => 'Maximum mark must be between 0 and 100.'], 422);
+    $otherMax = ($component['component'] ?? 'exam') === 'test' ? (float)($course['examMaxMark'] ?? 0) : (float)($course['testMaxMark'] ?? 0);
+    if ($maxMark + $otherMax <= 0 || $maxMark + $otherMax > 100) respond(['error' => 'Test and Exam maximum marks must total more than 0 and not exceed 100.'], 422);
+    $values = componentValues([
+        'componentDuration' => $input['duration'] ?? null,
+        'componentQuestionCount' => $input['questionCount'] ?? null,
+        'componentStartAt' => $input['startAt'] ?? null,
+        'componentEndAt' => $input['endAt'] ?? null,
+        'componentStatus' => $input['status'] ?? null,
+    ], 'component', (float)$maxMark);
+    return $values;
+}
+function validateCourse(array $input, array $data, ?string $currentId = null): array {
+    $code = requireText($input['code'] ?? null, 'Course code', 40); $title = requireText($input['title'] ?? null, 'Course title');
+    foreach ($data['courses'] as $course) if (($course['id'] ?? '') !== $currentId && strcasecmp((string)$course['code'], $code) === 0 && ($course['sessionId'] ?? '') === (string)($input['sessionId'] ?? '')) respond(['error' => 'That course code already exists in this academic session.'], 409);
+    $unit = filter_var($input['courseUnit'] ?? null, FILTER_VALIDATE_INT); if ($unit === false || $unit < 1 || $unit > 6) respond(['error' => 'Course unit must be between 1 and 6.'], 422);
+    $sessionId = (string)($input['sessionId'] ?? ''); $semesterId = (string)($input['semesterId'] ?? '');
+    $session = findBy($data['academicSessions'], 'id', $sessionId); $semester = findBy($data['semesters'], 'id', $semesterId);
+    if (!$session || !$semester || ($semester['sessionId'] ?? '') !== $sessionId) respond(['error' => 'Choose a matching academic session and semester.'], 422);
+    $testMax = (float)($input['testMaxMark'] ?? 30); $examMax = (float)($input['examMaxMark'] ?? 70);
+    if ($testMax < 0 || $examMax < 0 || $testMax + $examMax <= 0 || $testMax + $examMax > 100) respond(['error' => 'Test and Exam maximum marks must add up to a value greater than 0 and not exceed 100.'], 422);
+    return ['code' => $code, 'title' => $title, 'description' => trim((string)($input['description'] ?? '')), 'courseUnit' => $unit, 'sessionId' => $sessionId, 'semesterId' => $semesterId, 'testMaxMark' => $testMax, 'examMaxMark' => $examMax, 'test' => componentValues($input, 'test', $testMax), 'exam' => componentValues($input, 'exam', $examMax)];
 }
 function validateQuestion(array $input, array $data): array {
     $examId = (string)($input['examId'] ?? '');
@@ -519,6 +654,11 @@ function publicExam(array $exam): array {
     $exam['windowState'] = $windowState;
     $exam['active'] = $exam['status'] === 'active' && $windowState === 'open';
     $exam['window'] = date('M j, H:i', strtotime($exam['startAt'])) . ' - ' . date('H:i', strtotime($exam['endAt']));
+    $exam['component'] = $exam['component'] ?? 'exam';
+    $exam['componentLabel'] = ucfirst((string)$exam['component']);
+    $exam['maxMark'] = (float)($exam['maxMark'] ?? 100);
+    $exam['courseTitle'] = $exam['courseTitle'] ?? $exam['title'];
+    $exam['displayTitle'] = $exam['courseTitle'] . ' — ' . $exam['componentLabel'];
     return $exam;
 }
 function publicQuestion(array $question): array {
@@ -529,8 +669,51 @@ function gradeForScore(float $score, array $scale): array {
     foreach ($scale as $band) if ($score >= (float)$band['minScore'] && $score <= (float)$band['maxScore']) return ['grade' => (string)$band['grade'], 'gradePoint' => (float)$band['gradePoint']];
     return ['grade' => 'F', 'gradePoint' => 0];
 }
+function courseResultSummaries(array $data, string $studentId, string $sessionId = '', string $semesterId = ''): array {
+    $rows = [];
+    foreach ($data['courses'] as $course) {
+        if ($sessionId !== '' && ($course['sessionId'] ?? '') !== $sessionId) continue;
+        if ($semesterId !== '' && ($course['semesterId'] ?? '') !== $semesterId) continue;
+        $components = array_values(array_filter($data['exams'], fn($exam) => ($exam['courseId'] ?? '') === ($course['id'] ?? '')));
+        $latest = [];
+        foreach ($data['results'] as $result) {
+            if (($result['studentId'] ?? '') !== $studentId || ($result['courseId'] ?? '') !== ($course['id'] ?? '')) continue;
+            $component = (string)($result['component'] ?? 'exam');
+            if (!isset($latest[$component]) || strcmp((string)($latest[$component]['submittedAt'] ?? ''), (string)($result['submittedAt'] ?? '')) < 0) $latest[$component] = $result;
+        }
+        $testMax = (float)($course['testMaxMark'] ?? 0); $examMax = (float)($course['examMaxMark'] ?? 0);
+        $test = $latest['test'] ?? null; $exam = $latest['exam'] ?? null;
+        $complete = ($testMax <= 0 || $test !== null) && ($examMax <= 0 || $exam !== null) && ($testMax + $examMax > 0);
+        if (!$test && !$exam) continue;
+        $total = ($test ? (float)($test['scaledScore'] ?? $test['score'] ?? 0) : 0) + ($exam ? (float)($exam['scaledScore'] ?? $exam['score'] ?? 0) : 0);
+        $grade = $complete ? gradeForScore($total, $data['settings']['gradingScale']) : ['grade' => 'In progress', 'gradePoint' => 0];
+        $unit = max(1, (int)($course['courseUnit'] ?? 3));
+        $session = findBy($data['academicSessions'], 'id', (string)($course['sessionId'] ?? ''));
+        $semester = findBy($data['semesters'], 'id', (string)($course['semesterId'] ?? ''));
+        $rows[] = ['courseId' => $course['id'], 'courseCode' => $course['code'], 'courseTitle' => $course['title'], 'courseUnit' => $unit, 'sessionId' => $course['sessionId'] ?? '', 'semesterId' => $course['semesterId'] ?? '', 'sessionLabel' => $session['label'] ?? 'Unassigned session', 'semesterLabel' => $semester['label'] ?? 'Unassigned semester', 'testScore' => $test ? round((float)($test['scaledScore'] ?? $test['score'] ?? 0), 1) : null, 'examScore' => $exam ? round((float)($exam['scaledScore'] ?? $exam['score'] ?? 0), 1) : null, 'total' => $complete ? round($total, 1) : null, 'grade' => $grade['grade'], 'gradePoint' => $grade['gradePoint'], 'qualityPoints' => $complete ? round($unit * $grade['gradePoint'], 2) : 0, 'status' => $complete ? 'completed' : 'in_progress', 'testResult' => $test, 'examResult' => $exam];
+    }
+    usort($rows, fn($a, $b) => strnatcasecmp($a['courseCode'], $b['courseCode']));
+    return $rows;
+}
 function recalculateResults(array &$data): void {
-    foreach ($data['results'] as &$result) { $exam = findBy($data['exams'], 'id', $result['examId']); $unit = max(1, (int)($exam['courseUnit'] ?? $result['courseUnit'] ?? 3)); $grade = gradeForScore((float)$result['score'], $data['settings']['gradingScale']); $result['courseUnit'] = $unit; $result['grade'] = $grade['grade']; $result['gradePoint'] = $grade['gradePoint']; $result['qualityPoints'] = round($unit * $grade['gradePoint'], 2); $result['session'] = $exam['session'] ?? ($result['session'] ?? ''); }
+    foreach ($data['results'] as &$result) {
+        $exam = findBy($data['exams'], 'id', $result['examId']);
+        if (!$exam) continue;
+        if (empty($result['examSessionId'])) {
+            $attempt = findBy($data['sessions'], 'id', (string)($result['sessionId'] ?? ''));
+            if (!$attempt) foreach ($data['sessions'] as $candidate) if (($candidate['studentId'] ?? '') === ($result['studentId'] ?? '') && ($candidate['examId'] ?? '') === ($result['examId'] ?? '') && (($candidate['submittedAt'] ?? '') === ($result['submittedAt'] ?? ''))) { $attempt = $candidate; break; }
+            if ($attempt) $result['examSessionId'] = $attempt['id'];
+        }
+        // Repair records written during the academic migration: sessionId is the CBT
+        // attempt identifier, while academicSessionId is the teaching-session identifier.
+        if (!empty($result['examSessionId']) && findBy($data['academicSessions'], 'id', (string)($result['sessionId'] ?? ''))) $result['sessionId'] = $result['examSessionId'];
+        $raw = (float)($result['rawScore'] ?? $result['score'] ?? 0);
+        $scaled = round(($raw / 100) * (float)($exam['maxMark'] ?? 100), 1);
+        $result['rawScore'] = $raw; $result['scaledScore'] = $scaled; $result['score'] = $scaled;
+        $result['courseId'] = $exam['courseId'] ?? ($result['courseId'] ?? ''); $result['component'] = $exam['component'] ?? ($result['component'] ?? 'exam');
+        $result['academicSessionId'] = $exam['sessionId'] ?? ($result['academicSessionId'] ?? ''); $result['academicSemesterId'] = $exam['semesterId'] ?? ($result['academicSemesterId'] ?? '');
+        $result['courseUnit'] = max(1, (int)($exam['courseUnit'] ?? $result['courseUnit'] ?? 3));
+    }
     unset($result);
 }
 function completeSession(array &$data, array $session, bool $auto): array {
@@ -541,13 +724,17 @@ function completeSession(array &$data, array $session, bool $auto): array {
         $isCorrect = $answer === $expected; if ($isCorrect) $correct++;
         $review[] = ['id' => $question['id'], 'text' => $question['text'], 'options' => $question['options'], 'type' => $question['type'] ?? 'single', 'correctOptions' => $expected, 'answers' => $answer, 'isCorrect' => $isCorrect, 'flagged' => in_array($question['id'], $session['flagged'] ?? [], true)];
     }
-    $session['status'] = $auto ? 'auto_submitted' : 'submitted'; $session['submittedAt'] = date('c'); $session['score'] = count($questions) ? round(($correct / count($questions)) * 100, 1) : 0;
+    $session['status'] = $auto ? 'auto_submitted' : 'submitted'; $session['submittedAt'] = date('c'); $session['rawScore'] = count($questions) ? round(($correct / count($questions)) * 100, 1) : 0;
     replaceBy($data['sessions'], 'id', $session['id'], $session);
-    if (!findBy($data['results'], 'sessionId', $session['id'])) $data['results'][] = ['id' => id(), 'sessionId' => $session['id'], 'studentId' => $session['studentId'], 'examId' => $session['examId'], 'score' => $session['score'], 'submittedAt' => $session['submittedAt'], 'status' => $session['status'], 'questions' => $review, 'integrityEvents' => $session['integrityEvents'] ?? []];
+    $examForResult = findBy($data['exams'], 'id', $session['examId']);
+    $scaledScore = round(($session['rawScore'] / 100) * (float)($examForResult['maxMark'] ?? 100), 1);
+    $session['score'] = $scaledScore;
+    replaceBy($data['sessions'], 'id', $session['id'], $session);
+    if (!findBy($data['results'], 'examSessionId', $session['id'])) $data['results'][] = ['id' => id(), 'sessionId' => $session['id'], 'examSessionId' => $session['id'], 'studentId' => $session['studentId'], 'examId' => $session['examId'], 'courseId' => $examForResult['courseId'] ?? '', 'component' => $examForResult['component'] ?? 'exam', 'academicSessionId' => $examForResult['sessionId'] ?? '', 'academicSemesterId' => $examForResult['semesterId'] ?? '', 'rawScore' => $session['rawScore'], 'scaledScore' => $scaledScore, 'score' => $scaledScore, 'submittedAt' => $session['submittedAt'], 'status' => $session['status'], 'questions' => $review, 'integrityEvents' => $session['integrityEvents'] ?? []];
     foreach ($data['passwords'] as &$record) if (($record['id'] ?? '') === ($session['passwordId'] ?? '')) $record['usedAt'] = $session['submittedAt'];
     unset($record);
     $student = findBy($data['students'], 'id', $session['studentId']); $exam = findBy($data['exams'], 'id', $session['examId']);
-    auditEvent($data, 'student', (string)$session['studentId'], $auto ? 'exam_submitted_auto' : 'exam_submitted_manual', 'exam_session', (string)$session['id'], ['matricNumber' => $student['matricNumber'] ?? '', 'course' => $exam['code'] ?? '', 'score' => $session['score']]);
+    auditEvent($data, 'student', (string)$session['studentId'], $auto ? 'exam_submitted_auto' : 'exam_submitted_manual', 'exam_session', (string)$session['id'], ['matricNumber' => $student['matricNumber'] ?? '', 'course' => $exam['code'] ?? '', 'component' => $exam['component'] ?? 'exam', 'rawScore' => $session['rawScore'], 'scaledScore' => $session['score']]);
     recalculateResults($data);
     return $session;
 }
@@ -562,18 +749,24 @@ function sessionPayload(array $session, string $accessToken): array {
     return ['id' => $session['id'], 'startedAt' => $session['startedAt'], 'endsAt' => $session['endsAt'], 'accessToken' => $accessToken, 'answers' => $session['answers'], 'flagged' => $session['flagged'], 'status' => $session['status'], 'lockedReason' => $session['lockedReason'] ?? null, 'integrityEvents' => $session['integrityEvents'] ?? []];
 }
 function publicSessionQuestions(array $session): array { return array_map('publicQuestion', $session['questions'] ?? []); }
-function studentReport(array $data, string $studentId): array {
+function studentReport(array $data, string $studentId, string $sessionId = '', string $semesterId = ''): array {
     $student = findBy($data['students'], 'id', $studentId);
     if (!$student) respond(['error' => 'Student not found.'], 404);
-    $items = array_values(array_filter($data['results'], fn($result) => $result['studentId'] === $studentId));
-    usort($items, fn($a, $b) => strcmp($a['submittedAt'], $b['submittedAt']));
-    foreach ($items as &$item) { $exam = findBy($data['exams'], 'id', $item['examId']); $item['courseCode'] = $exam['code'] ?? 'Unknown course'; $item['courseTitle'] = $exam['title'] ?? ''; $item['session'] = $exam['session'] ?? ($item['session'] ?? ''); }
-    unset($item);
-    $groups = []; $totalUnits = 0; $totalQuality = 0;
-    foreach ($items as $item) { $key = $item['session'] ?: 'Unassigned session'; $groups[$key] ??= ['courseUnit' => 0, 'qualityPoints' => 0]; $groups[$key]['courseUnit'] += $item['courseUnit']; $groups[$key]['qualityPoints'] += $item['qualityPoints']; $totalUnits += $item['courseUnit']; $totalQuality += $item['qualityPoints']; }
-    foreach ($groups as &$group) $group['gpa'] = $group['courseUnit'] ? round($group['qualityPoints'] / $group['courseUnit'], 2) : 0;
-    unset($group);
-    return ['student' => $student, 'items' => $items, 'sessions' => $groups, 'cgpa' => $totalUnits ? round($totalQuality / $totalUnits, 2) : 0];
+    $all = courseResultSummaries($data, $studentId);
+    $availablePeriods = [];
+    foreach ($all as $row) {
+        $key = $row['sessionId'] . '|' . $row['semesterId'];
+        $availablePeriods[$key] = ['sessionId' => $row['sessionId'], 'semesterId' => $row['semesterId'], 'sessionLabel' => $row['sessionLabel'], 'semesterLabel' => $row['semesterLabel']];
+    }
+    // A student may have several completed periods. Do not blend them into a misleading
+    // “semester” sheet: the UI asks the administrator to choose one first.
+    $items = ($sessionId === '' || $semesterId === '') ? [] : array_values(array_filter($all, fn($row) => $row['sessionId'] === $sessionId && $row['semesterId'] === $semesterId));
+    $periodUnits = 0; $periodQuality = 0; $totalUnits = 0; $totalQuality = 0;
+    foreach ($all as $row) if ($row['status'] === 'completed') { $totalUnits += $row['courseUnit']; $totalQuality += $row['qualityPoints']; }
+    foreach ($items as $row) if ($row['status'] === 'completed') { $periodUnits += $row['courseUnit']; $periodQuality += $row['qualityPoints']; }
+    $selectedSession = $sessionId !== '' ? findBy($data['academicSessions'], 'id', $sessionId) : null;
+    $selectedSemester = $semesterId !== '' ? findBy($data['semesters'], 'id', $semesterId) : null;
+    return ['student' => $student, 'items' => $items, 'availablePeriods' => array_values($availablePeriods), 'selectedSession' => $selectedSession, 'selectedSemester' => $selectedSemester, 'semesterGpa' => $periodUnits ? round($periodQuality / $periodUnits, 2) : 0, 'cgpa' => $totalUnits ? round($totalQuality / $totalUnits, 2) : 0];
 }
 function safeCsvCell(mixed $value): string {
     $value = (string)$value;
@@ -599,6 +792,71 @@ if ($action === 'admin-registration' && $method === 'POST') {
     auditEvent($data, 'system', $request['email'], 'administrator_registration_requested', 'administrator_request', $request['id'], ['name' => $request['name'], 'email' => $request['email']]);
     saveData($data);
     respond(['ok' => true], 201);
+}
+if ($action === 'admin-password-reset-request' && $method === 'POST') {
+    $input = body();
+    $rateLimitKey = enforceRateLimit($data, 'admin-password-reset-request', 5, 3600);
+    $email = strtolower(trim((string)($input['email'] ?? '')));
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) respond(['error' => 'Enter a valid email address.'], 422);
+
+    // The bootstrap Superadmin cannot be suspended after a self-service reset: doing so
+    // would leave the institution with nobody able to reactivate the account. Its password
+    // must instead be recovered through the protected deployment/environment process.
+    $bootstrap = bootstrapAdminAccount($data);
+    if (hash_equals(strtolower((string)$bootstrap['email']), $email)) respond(['error' => 'The Superadmin account uses the protected recovery process. Contact the system owner for Superadmin recovery.'], 409);
+
+    $account = findBy($data['adminUsers'], 'email', $email);
+    if (!$account || empty($account['active'])) respond(['error' => 'No active administrator account was found for that email address.'], 404);
+    if (empty($account['verified'])) respond(['error' => 'This administrator account must verify its email before resetting its password.'], 403);
+    if (newsletterSmtpConfig() === null) respond(['error' => 'Email delivery is not configured. Contact the Superadmin.'], 503);
+
+    $code = (string)random_int(100000, 999999);
+    $delivery = sendNewsletterMessage(
+        $account['email'],
+        'CACSA LAUTECH password reset code',
+        "Hello " . $account['name'] . ",\n\nYour CACSA LAUTECH administrator password reset code is: " . $code . "\n\nThis six-digit code expires in 15 minutes. If you did not request a password reset, contact your Superadmin immediately.",
+        false
+    );
+    if (!$delivery['ok']) respond(['error' => 'The reset email was not accepted by the mail server. Please try again or contact the Superadmin.'], 503);
+
+    $data['adminPasswordResets'] = array_values(array_filter($data['adminPasswordResets'], fn($item) => ($item['userId'] ?? '') !== $account['id']));
+    $data['adminPasswordResets'][] = ['id' => id(), 'userId' => $account['id'], 'email' => $account['email'], 'codeHash' => password_hash($code, PASSWORD_DEFAULT), 'expiresAt' => date('c', time() + 900), 'attempts' => 0, 'createdAt' => date('c')];
+    clearRateLimit($data, $rateLimitKey);
+    auditEvent($data, 'system', $account['email'], 'administrator_password_reset_requested', 'administrator', $account['id'], ['email' => $account['email']]);
+    saveData($data);
+    respond(['ok' => true, 'expiresAt' => date('c', time() + 900)]);
+}
+if ($action === 'admin-password-reset-confirm' && $method === 'POST') {
+    $input = body();
+    $rateLimitKey = enforceRateLimit($data, 'admin-password-reset-confirm', 10, 900);
+    $email = strtolower(trim((string)($input['email'] ?? '')));
+    $code = trim((string)($input['code'] ?? ''));
+    $password = (string)($input['password'] ?? '');
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL) || !preg_match('/^\d{6}$/', $code)) respond(['error' => 'Enter the email address and six-digit code exactly as received.'], 422);
+    if (strlen($password) < 8) respond(['error' => 'Use a new password with at least 8 characters.'], 422);
+
+    $account = findBy($data['adminUsers'], 'email', $email);
+    $reset = findBy($data['adminPasswordResets'], 'email', $email);
+    if (!$account || !$reset || empty($account['active']) || strtotime((string)($reset['expiresAt'] ?? '')) <= time()) respond(['error' => 'This reset code is invalid or has expired. Request a new code.'], 422);
+    if (!password_verify($code, (string)$reset['codeHash'])) {
+        $reset['attempts'] = (int)($reset['attempts'] ?? 0) + 1;
+        if ($reset['attempts'] >= 5) $data['adminPasswordResets'] = array_values(array_filter($data['adminPasswordResets'], fn($item) => ($item['id'] ?? '') !== $reset['id']));
+        else replaceBy($data['adminPasswordResets'], 'id', $reset['id'], $reset);
+        saveData($data);
+        respond(['error' => 'The six-digit code is incorrect.'], 422);
+    }
+
+    $account['passwordHash'] = password_hash($password, PASSWORD_DEFAULT);
+    $account['active'] = false;
+    $account['suspendedAt'] = date('c');
+    $account['suspensionReason'] = 'password_reset_pending_superadmin_reactivation';
+    replaceBy($data['adminUsers'], 'id', $account['id'], $account);
+    $data['adminPasswordResets'] = array_values(array_filter($data['adminPasswordResets'], fn($item) => ($item['id'] ?? '') !== $reset['id']));
+    $data['adminSessions'] = array_values(array_filter($data['adminSessions'], fn($item) => ($item['userId'] ?? '') !== $account['id']));
+    clearRateLimit($data, $rateLimitKey);
+    auditEvent($data, 'system', $account['email'], 'administrator_password_reset_completed', 'administrator', $account['id'], ['accountStatus' => 'suspended_pending_superadmin_reactivation']);
+    saveData($data);
+    respond(['ok' => true]);
 }
 if ($action === 'admin-login' && $method === 'POST') {
     $input = body();
@@ -730,7 +988,12 @@ if ($action === 'admin-users' && in_array($method, ['PUT', 'DELETE'], true)) {
     if ($method === 'DELETE') { $user['active'] = false; replaceBy($data['adminUsers'], 'id', $userId, $user); auditEvent($data, 'admin', adminActorId(), 'administrator_disabled', 'administrator', $userId, ['email' => $user['email']]); saveData($data); respond(['item' => publicAdminUser($user, $data['roles'], $data['adminUserActivity'])]); }
     $input = body(); $values = validateAdminUser(array_merge($user, $input), $data, $userId, false); $newRole = findBy($data['roles'], 'id', $values['roleId']);
     if ($newRole['id'] !== $user['roleId']) { $count = count(array_filter($data['adminUsers'], fn($item) => ($item['roleId'] ?? '') === $newRole['id'] && !empty($item['active']))); if ($count >= (int)$newRole['maxUsers']) respond(['error' => 'This role has reached its maximum number of users.'], 409); }
-    $user = array_merge($user, $values); if (array_key_exists('active', $input)) $user['active'] = (bool)$input['active']; replaceBy($data['adminUsers'], 'id', $userId, $user);
+    $user = array_merge($user, $values);
+    if (array_key_exists('active', $input)) {
+        $user['active'] = (bool)$input['active'];
+        if ($user['active']) { unset($user['suspendedAt'], $user['suspensionReason']); }
+    }
+    replaceBy($data['adminUsers'], 'id', $userId, $user);
     auditEvent($data, 'admin', adminActorId(), 'administrator_updated', 'administrator', $userId, ['email' => $user['email'], 'role' => $newRole['name']]); saveData($data); respond(['item' => publicAdminUser($user, $data['roles'], $data['adminUserActivity'])]);
 }
 
@@ -764,7 +1027,7 @@ if ($action === 'admin-approvals' && $method === 'POST') {
     $message = "Hello " . $request['name'] . ",\n\nYour CACSA LAUTECH CBT administrator account has been approved.\n\nAssigned role: " . $role['name'] . "\nAccess: " . implode(', ', array_map(fn($permission) => ucwords(str_replace('_', ' ', $permission)), $role['permissions'])) . "\n\nYou can now sign in at the administrator portal using the email and password you submitted.\n\nIf you did not request this account, contact CACSA LAUTECH immediately.";
     $delivery = sendNewsletterMessage($request['email'], 'Your CACSA LAUTECH CBT administrator access has been approved', $message, false);
     if (!$delivery['ok']) respond(['error' => 'The approval email was not accepted by the mail server. The request remains pending; check the SMTP configuration and try again.'], 503);
-    $account = ['id' => id(), 'name' => $request['name'], 'email' => $request['email'], 'passwordHash' => $request['passwordHash'], 'roleId' => $role['id'], 'active' => true, 'verified' => true, 'createdAt' => date('c'), 'approvedAt' => date('c'), 'approvedBy' => adminActorId()];
+    $account = ['id' => id(), 'name' => $request['name'], 'email' => $request['email'], 'phoneNumber' => $request['phoneNumber'] ?? '', 'passwordHash' => $request['passwordHash'], 'roleId' => $role['id'], 'active' => true, 'verified' => true, 'createdAt' => date('c'), 'approvedAt' => date('c'), 'approvedBy' => adminActorId()];
     $data['adminUsers'][] = $account;
     $request['status'] = 'approved'; $request['roleId'] = $role['id']; $request['resolvedAt'] = date('c'); $request['resolvedBy'] = adminActorId(); $request['emailDelivery'] = $delivery['reason'];
     unset($request['passwordHash']);
@@ -846,6 +1109,96 @@ if ($action === 'newsletters' && $method === 'POST') {
     $data['newsletters'][] = $newsletter;
     auditEvent($data, 'admin', adminActorId(), 'newsletter_sent', 'newsletter', $newsletter['id'], ['subject' => $subject, 'recipients' => count($recipients), 'accepted' => $accepted, 'failed' => $failed]); saveData($data);
     respond(['item' => $newsletter, 'accepted' => $accepted, 'failed' => $failed], 201);
+}
+
+if ($action === 'academic-sessions' && $method === 'GET') { auth(true); respond(['items' => $data['academicSessions']]); }
+if ($action === 'academic-sessions' && in_array($method, ['POST', 'PUT', 'DELETE'], true)) {
+    auth(true); $input = body(); $sessionId = (string)($_GET['id'] ?? '');
+    if ($method === 'POST') {
+        $item = ['id' => id()] + validateAcademicSession($input, $data) + ['createdAt' => date('c')];
+        if ($item['isActive']) foreach ($data['academicSessions'] as &$session) $session['isActive'] = false; unset($session);
+        $data['academicSessions'][] = $item; auditEvent($data, 'admin', adminActorId(), 'academic_session_created', 'academic_session', $item['id'], ['label' => $item['label']]); saveData($data); respond(['item' => $item], 201);
+    }
+    $item = findBy($data['academicSessions'], 'id', $sessionId); if (!$item) respond(['error' => 'Academic session not found.'], 404);
+    if ($method === 'DELETE') {
+        if (array_filter($data['courses'], fn($course) => ($course['sessionId'] ?? '') === $sessionId) || array_filter($data['semesters'], fn($semester) => ($semester['sessionId'] ?? '') === $sessionId)) respond(['error' => 'This session has courses or semesters and cannot be deleted.'], 409);
+        $data['academicSessions'] = array_values(array_filter($data['academicSessions'], fn($session) => ($session['id'] ?? '') !== $sessionId)); auditEvent($data, 'admin', adminActorId(), 'academic_session_deleted', 'academic_session', $sessionId); saveData($data); respond(['ok' => true]);
+    }
+    $item = array_merge($item, validateAcademicSession(array_merge($item, $input), $data, $sessionId)); if ($item['isActive']) foreach ($data['academicSessions'] as &$session) $session['isActive'] = false; unset($session);
+    replaceBy($data['academicSessions'], 'id', $sessionId, $item); auditEvent($data, 'admin', adminActorId(), 'academic_session_updated', 'academic_session', $sessionId, ['label' => $item['label']]); saveData($data); respond(['item' => $item]);
+}
+if ($action === 'semesters' && $method === 'GET') { auth(true); respond(['items' => $data['semesters']]); }
+if ($action === 'semesters' && in_array($method, ['POST', 'PUT', 'DELETE'], true)) {
+    auth(true); $input = body(); $semesterId = (string)($_GET['id'] ?? '');
+    if ($method === 'POST') {
+        $item = ['id' => id()] + validateSemester($input, $data) + ['createdAt' => date('c')];
+        if ($item['isActive']) foreach ($data['semesters'] as &$semester) if (($semester['sessionId'] ?? '') === $item['sessionId']) $semester['isActive'] = false; unset($semester);
+        $data['semesters'][] = $item; auditEvent($data, 'admin', adminActorId(), 'semester_created', 'semester', $item['id'], ['label' => $item['label']]); saveData($data); respond(['item' => $item], 201);
+    }
+    $item = findBy($data['semesters'], 'id', $semesterId); if (!$item) respond(['error' => 'Semester not found.'], 404);
+    if ($method === 'DELETE') {
+        if (array_filter($data['courses'], fn($course) => ($course['semesterId'] ?? '') === $semesterId)) respond(['error' => 'This semester has courses and cannot be deleted.'], 409);
+        $data['semesters'] = array_values(array_filter($data['semesters'], fn($semester) => ($semester['id'] ?? '') !== $semesterId)); auditEvent($data, 'admin', adminActorId(), 'semester_deleted', 'semester', $semesterId); saveData($data); respond(['ok' => true]);
+    }
+    $item = array_merge($item, validateSemester(array_merge($item, $input), $data, $semesterId)); if ($item['isActive']) foreach ($data['semesters'] as &$semester) if (($semester['sessionId'] ?? '') === $item['sessionId']) $semester['isActive'] = false; unset($semester);
+    replaceBy($data['semesters'], 'id', $semesterId, $item); auditEvent($data, 'admin', adminActorId(), 'semester_updated', 'semester', $semesterId, ['label' => $item['label']]); saveData($data); respond(['item' => $item]);
+}
+if ($action === 'course-components' && in_array($method, ['PUT', 'DELETE'], true)) {
+    auth(true); $componentId = (string)($_GET['id'] ?? ''); $component = findBy($data['exams'], 'id', $componentId);
+    if (!$component || empty($component['courseId'])) respond(['error' => 'Course component not found.'], 404);
+    $course = findBy($data['courses'], 'id', (string)$component['courseId']); if (!$course) respond(['error' => 'The parent course could not be found.'], 404);
+    $kind = (string)($component['component'] ?? 'exam');
+    if ($method === 'DELETE') {
+        if (array_filter($data['results'], fn($result) => ($result['examId'] ?? '') === $componentId)) respond(['error' => 'This component has submitted results and cannot be deleted.'], 409);
+        $remainingMax = $kind === 'test' ? (float)($course['examMaxMark'] ?? 0) : (float)($course['testMaxMark'] ?? 0);
+        if ($remainingMax <= 0) respond(['error' => 'A course must retain at least one scored component.'], 422);
+        $data['questions'] = array_values(array_filter($data['questions'], fn($question) => ($question['examId'] ?? '') !== $componentId));
+        $data['exams'] = array_values(array_filter($data['exams'], fn($exam) => ($exam['id'] ?? '') !== $componentId));
+        if ($kind === 'test') $course['testMaxMark'] = 0; else $course['examMaxMark'] = 0;
+        replaceBy($data['courses'], 'id', $course['id'], $course);
+        auditEvent($data, 'admin', adminActorId(), 'course_component_deleted', 'course_component', $componentId, ['course' => $course['code'], 'component' => $kind]); saveData($data); respond(['ok' => true]);
+    }
+    $values = validateCourseComponent(body(), $course, $component);
+    $component = array_merge($component, $values); replaceBy($data['exams'], 'id', $componentId, $component);
+    if ($kind === 'test') $course['testMaxMark'] = $values['maxMark']; else $course['examMaxMark'] = $values['maxMark'];
+    replaceBy($data['courses'], 'id', $course['id'], $course); recalculateResults($data);
+    auditEvent($data, 'admin', adminActorId(), 'course_component_updated', 'course_component', $componentId, ['course' => $course['code'], 'component' => $kind, 'status' => $component['status'], 'maxMark' => $component['maxMark']]); saveData($data); respond(['item' => publicExam($component)]);
+}
+
+if ($action === 'courses' && $method === 'GET') {
+    auth(true); $items = $data['courses'];
+    foreach ($items as &$course) {
+        $session = findBy($data['academicSessions'], 'id', (string)($course['sessionId'] ?? '')); $semester = findBy($data['semesters'], 'id', (string)($course['semesterId'] ?? ''));
+        $course['sessionLabel'] = $session['label'] ?? ''; $course['semesterLabel'] = $semester['label'] ?? '';
+        $course['components'] = array_values(array_map('publicExam', array_filter($data['exams'], fn($exam) => ($exam['courseId'] ?? '') === ($course['id'] ?? ''))));
+    }
+    unset($course); respond(listItems($items, ['code', 'title', 'sessionLabel', 'semesterLabel'], ['code', 'title', 'courseUnit']));
+}
+if ($action === 'courses' && in_array($method, ['POST', 'PUT', 'DELETE'], true)) {
+    auth(true); $input = body(); $courseId = (string)($_GET['id'] ?? '');
+    if ($method === 'POST') {
+        ensureCoursePeriod($data, $input);
+        $values = validateCourse($input, $data); $course = ['id' => id()] + array_diff_key($values, ['test' => true, 'exam' => true]) + ['createdAt' => date('c')];
+        $components = [];
+        foreach (['test', 'exam'] as $component) {
+            $valuesForComponent = $values[$component]; $components[] = ['id' => id(), 'courseId' => $course['id'], 'component' => $component, 'code' => $course['code'], 'title' => $course['title'], 'courseTitle' => $course['title'], 'description' => $course['description'], 'courseUnit' => $course['courseUnit'], 'sessionId' => $course['sessionId'], 'semesterId' => $course['semesterId']] + $valuesForComponent + ['createdAt' => date('c')];
+        }
+        $data['courses'][] = $course; array_push($data['exams'], ...$components); auditEvent($data, 'admin', adminActorId(), 'course_created', 'course', $course['id'], ['course' => $course['code'], 'testMaxMark' => $course['testMaxMark'], 'examMaxMark' => $course['examMaxMark']]); saveData($data); respond(['item' => $course, 'components' => array_map('publicExam', $components)], 201);
+    }
+    $course = findBy($data['courses'], 'id', $courseId); if (!$course) respond(['error' => 'Course not found.'], 404);
+    if ($method === 'DELETE') {
+        $components = array_values(array_filter($data['exams'], fn($exam) => ($exam['courseId'] ?? '') === $courseId));
+        foreach ($components as $component) if (array_filter($data['results'], fn($result) => ($result['examId'] ?? '') === $component['id'])) respond(['error' => 'This course has result history and cannot be deleted.'], 409);
+        $componentIds = array_column($components, 'id'); $data['questions'] = array_values(array_filter($data['questions'], fn($question) => !in_array($question['examId'] ?? '', $componentIds, true))); $data['exams'] = array_values(array_filter($data['exams'], fn($exam) => ($exam['courseId'] ?? '') !== $courseId)); $data['courses'] = array_values(array_filter($data['courses'], fn($item) => ($item['id'] ?? '') !== $courseId)); auditEvent($data, 'admin', adminActorId(), 'course_deleted', 'course', $courseId, ['course' => $course['code']]); saveData($data); respond(['ok' => true]);
+    }
+    $input = array_merge($course, $input); ensureCoursePeriod($data, $input);
+    $values = validateCourse($input, $data, $courseId); $course = array_merge($course, array_diff_key($values, ['test' => true, 'exam' => true])); replaceBy($data['courses'], 'id', $courseId, $course);
+    foreach (['test', 'exam'] as $component) {
+        $existing = array_values(array_filter($data['exams'], fn($exam) => ($exam['courseId'] ?? '') === $courseId && ($exam['component'] ?? 'exam') === $component)); $exam = $existing[0] ?? null;
+        $componentData = ['courseId' => $courseId, 'component' => $component, 'code' => $course['code'], 'title' => $course['title'], 'courseTitle' => $course['title'], 'description' => $course['description'], 'courseUnit' => $course['courseUnit'], 'sessionId' => $course['sessionId'], 'semesterId' => $course['semesterId']] + $values[$component];
+        if ($exam) replaceBy($data['exams'], 'id', $exam['id'], array_merge($exam, $componentData)); else $data['exams'][] = ['id' => id()] + $componentData + ['createdAt' => date('c')];
+    }
+    recalculateResults($data); auditEvent($data, 'admin', adminActorId(), 'course_updated', 'course', $courseId, ['course' => $course['code'], 'testMaxMark' => $course['testMaxMark'], 'examMaxMark' => $course['examMaxMark']]); saveData($data); respond(['item' => $course]);
 }
 
 if ($action === 'exams' && $method === 'GET') {
@@ -998,7 +1351,7 @@ if ($action === 'session-integrity' && $method === 'POST') {
     saveData($data); respond(['ok' => true, 'resultingAction' => $resultingAction, 'locked' => $resultingAction === 'locked', 'lockedReason' => $session['lockedReason'] ?? null]);
 }
 if ($action === 'session-submit' && $method === 'POST') {
-    $input = body(); $session = requireSession($data, $input); if ($session['status'] !== 'in_progress') { $existing = findBy($data['results'], 'sessionId', $session['id']); respond(['result' => $existing]); } $session = completeSession($data, $session, strtotime($session['endsAt']) <= time()); saveData($data); respond(['result' => findBy($data['results'], 'sessionId', $session['id'])]);
+    $input = body(); $session = requireSession($data, $input); if ($session['status'] !== 'in_progress') { $existing = findBy($data['results'], 'examSessionId', $session['id']); respond(['result' => $existing]); } $session = completeSession($data, $session, strtotime($session['endsAt']) <= time()); saveData($data); respond(['result' => findBy($data['results'], 'examSessionId', $session['id'])]);
 }
 if ($action === 'audit-monitor' && $method === 'GET') {
     auth(true); $now = time(); $items = [];
@@ -1031,14 +1384,14 @@ if ($action === 'audit-events' && $method === 'GET') {
 if ($action === 'results' && $method === 'GET') {
     auth(true); $items = $data['results'];
     if (!empty($_GET['status'])) $items = array_values(array_filter($items, fn($item) => $item['status'] === $_GET['status']));
-    foreach ($items as &$result) { $student = findBy($data['students'], 'id', $result['studentId']); $exam = findBy($data['exams'], 'id', $result['examId']); $result['studentName'] = $student['fullName'] ?? 'Unknown student'; $result['examCode'] = $exam['code'] ?? 'Unknown exam'; unset($result['questions'], $result['integrityEvents']); }
+    foreach ($items as &$result) { $student = findBy($data['students'], 'id', $result['studentId']); $exam = findBy($data['exams'], 'id', $result['examId']); $result['studentName'] = $student['fullName'] ?? 'Unknown student'; $result['examCode'] = $exam['code'] ?? 'Unknown exam'; $result['examTitle'] = $exam['courseTitle'] ?? $exam['title'] ?? ''; $result['componentLabel'] = ucfirst((string)($exam['component'] ?? 'exam')); $result['maxMark'] = (float)($exam['maxMark'] ?? 100); unset($result['questions'], $result['integrityEvents']); }
     unset($result);
     respond(listItems($items, ['studentName','examCode','status','grade'], ['studentName','examCode','score','grade','submittedAt','status']));
 }
 if ($action === 'result-review' && $method === 'GET') {
     auth(true); $result = findBy($data['results'], 'id', (string)($_GET['id'] ?? ''));
     if (!$result) respond(['error' => 'Result not found.'], 404);
-    $session = findBy($data['sessions'], 'id', $result['sessionId']);
+    $session = findBy($data['sessions'], 'id', $result['examSessionId'] ?? $result['sessionId']);
     $questions = $result['questions'] ?? [];
     if (!$questions && $session) {
         foreach (($session['questions'] ?? []) as $question) {
@@ -1064,17 +1417,24 @@ if ($action === 'settings' && $method === 'PUT') {
     usort($clean, fn($a, $b) => $b['minScore'] <=> $a['minScore']);
     $data['settings']['gradingScale'] = $clean;
     $data['settings']['integrityPolicy'] = validateIntegrityPolicy($input['integrityPolicy'] ?? ($data['settings']['integrityPolicy'] ?? DEFAULT_INTEGRITY_POLICY));
+    $logoUrl = trim((string)($input['resultLogoUrl'] ?? ($data['settings']['resultLogoUrl'] ?? 'CACSA%20Logo.jpeg')));
+    if ($logoUrl === '' || strlen($logoUrl) > 500) respond(['error' => 'Provide a valid result-sheet logo image path or URL.'], 422);
+    $data['settings']['resultLogoUrl'] = $logoUrl;
     recalculateResults($data); auditEvent($data, 'admin', getenv('CBT_ADMIN_EMAIL') ?: DEV_ADMIN_EMAIL, 'settings_updated', 'settings', 'integrity_and_grading', ['changed' => array_keys($input)]); saveData($data); respond(['settings' => $data['settings']]);
 }
-if ($action === 'student-results' && $method === 'GET') { auth(true); respond(studentReport($data, (string)($_GET['id'] ?? ''))); }
+if ($action === 'student-results' && $method === 'GET') {
+    auth(true);
+    respond(studentReport($data, (string)($_GET['id'] ?? ''), (string)($_GET['sessionId'] ?? ''), (string)($_GET['semesterId'] ?? '')));
+}
 if ($action === 'student-results-csv' && $method === 'GET') {
-    auth(true); $report = studentReport($data, (string)($_GET['id'] ?? ''));
+    auth(true); $report = studentReport($data, (string)($_GET['id'] ?? ''), (string)($_GET['sessionId'] ?? ''), (string)($_GET['semesterId'] ?? ''));
     header('Content-Type: text/csv; charset=utf-8'); header('Content-Disposition: attachment; filename="student-results.csv"');
     $stream = fopen('php://output', 'w');
     fputcsv($stream, ['Student', safeCsvCell($report['student']['fullName']), 'Matric', safeCsvCell($report['student']['matricNumber'])]);
-    fputcsv($stream, ['Session', 'Course', 'Unit', 'Score', 'Grade', 'Grade Point', 'Quality Points', 'Submitted At', 'Status']);
-    foreach ($report['items'] as $item) fputcsv($stream, [safeCsvCell($item['session']), safeCsvCell($item['courseCode'] . ' - ' . $item['courseTitle']), $item['courseUnit'], $item['score'], safeCsvCell($item['grade']), $item['gradePoint'], $item['qualityPoints'], $item['submittedAt'], $item['status']]);
-    foreach ($report['sessions'] as $name => $group) fputcsv($stream, ['GPA - ' . safeCsvCell($name), '', $group['courseUnit'], '', '', '', $group['qualityPoints'], '', $group['gpa']]);
+    fputcsv($stream, ['Academic Session', safeCsvCell($report['selectedSession']['label'] ?? ''), 'Semester', safeCsvCell($report['selectedSemester']['label'] ?? '')]);
+    fputcsv($stream, ['Course code', 'Course title', 'Unit', 'Test score', 'Exam score', 'Total', 'Grade', 'Grade point', 'Quality points', 'Status']);
+    foreach ($report['items'] as $item) fputcsv($stream, [safeCsvCell($item['courseCode']), safeCsvCell($item['courseTitle']), $item['courseUnit'], $item['testScore'] ?? '', $item['examScore'] ?? '', $item['total'] ?? '', safeCsvCell($item['grade'] ?? ''), $item['gradePoint'] ?? '', $item['qualityPoints'] ?? '', safeCsvCell($item['status'] ?? '')]);
+    fputcsv($stream, ['Semester GPA', $report['semesterGpa'] ?? '']);
     fputcsv($stream, ['CGPA', $report['cgpa']]); fclose($stream); exit;
 }
 if ($action === 'dashboard' && $method === 'GET') {

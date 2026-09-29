@@ -33,7 +33,14 @@
             "endAt": "2026-09-27T22:50:00+02:00",
             "status": "active",
             "courseUnit": 3,
-            "session": ""
+            "session": "",
+            "courseId": "legacy-course-math101",
+            "component": "exam",
+            "maxMark": 100,
+            "sessionId": "session-2026-2027",
+            "semesterId": "semester-harmattan-2026-2027",
+            "legacyExamOnly": true,
+            "courseTitle": "Foundations of Algebra"
         },
         {
             "id": "stat201",
@@ -46,7 +53,13 @@
             "endAt": "2026-09-24T01:51:00+02:00",
             "status": "published",
             "courseUnit": 3,
-            "session": ""
+            "session": "",
+            "courseId": "legacy-course-stat201",
+            "component": "exam",
+            "maxMark": 100,
+            "sessionId": "session-2026-2027",
+            "semesterId": "semester-harmattan-2026-2027",
+            "legacyExamOnly": true
         },
         {
             "id": "cs105",
@@ -55,11 +68,18 @@
             "description": "Boolean algebra, logic gates, and introductory circuit design.",
             "duration": 10,
             "questionCount": 3,
-            "startAt": "2026-09-27T23:00:00+02:00",
-            "endAt": "2026-09-27T23:50:00+02:00",
+            "startAt": "2026-09-29T19:25:00+02:00",
+            "endAt": "2026-09-29T19:50:00+02:00",
             "status": "active",
             "courseUnit": 3,
-            "session": ""
+            "session": "",
+            "courseId": "legacy-course-cs105",
+            "component": "exam",
+            "maxMark": 70,
+            "sessionId": "session-2026-2027",
+            "semesterId": "semester-harmattan-2026-2027",
+            "legacyExamOnly": true,
+            "courseTitle": "Digital Logic"
         },
         {
             "id": "d5fef04adf91bcb6",
@@ -72,7 +92,13 @@
             "endAt": "2026-09-24T11:12:00+02:00",
             "status": "published",
             "courseUnit": 3,
-            "session": ""
+            "session": "",
+            "courseId": "legacy-course-d5fef04adf91bcb6",
+            "component": "exam",
+            "maxMark": 100,
+            "sessionId": "session-2026-2027",
+            "semesterId": "semester-harmattan-2026-2027",
+            "legacyExamOnly": true
         },
         {
             "id": "4dbc3b9616d3232b",
@@ -83,9 +109,76 @@
             "questionCount": 5,
             "courseUnit": 2,
             "session": "",
-            "startAt": "2026-09-27T23:05:00+02:00",
-            "endAt": "2026-09-27T23:50:00+02:00",
-            "status": "active"
+            "startAt": "2026-09-29T19:25:00+02:00",
+            "endAt": "2026-09-29T19:50:00+02:00",
+            "status": "active",
+            "courseId": "legacy-course-4dbc3b9616d3232b",
+            "component": "exam",
+            "maxMark": 70,
+            "sessionId": "session-2026-2027",
+            "semesterId": "3ac853afa2cbec36",
+            "legacyExamOnly": true,
+            "courseTitle": "English"
+        },
+        {
+            "id": "e926e66d2eb63630",
+            "courseId": "legacy-course-cs105",
+            "component": "test",
+            "code": "CSC 105",
+            "title": "Digital Logic",
+            "courseTitle": "Digital Logic",
+            "description": "Boolean algebra, logic gates, and introductory circuit design.",
+            "courseUnit": 3,
+            "sessionId": "session-2026-2027",
+            "semesterId": "semester-harmattan-2026-2027",
+            "maxMark": 30,
+            "duration": 10,
+            "questionCount": 3,
+            "startAt": "2026-09-29T19:25:00+02:00",
+            "endAt": "2026-09-29T19:50:00+02:00",
+            "status": "active",
+            "createdAt": "2026-09-28T23:57:21+02:00",
+            "session": ""
+        },
+        {
+            "id": "ff9b0cfabddc827b",
+            "courseId": "legacy-course-4dbc3b9616d3232b",
+            "component": "test",
+            "code": "GST111",
+            "title": "English",
+            "courseTitle": "English",
+            "description": "",
+            "courseUnit": 2,
+            "sessionId": "session-2026-2027",
+            "semesterId": "3ac853afa2cbec36",
+            "maxMark": 30,
+            "duration": 1,
+            "questionCount": 5,
+            "startAt": "2026-09-29T19:25:00+02:00",
+            "endAt": "2026-09-29T19:50:00+02:00",
+            "status": "active",
+            "createdAt": "2026-09-28T23:58:43+02:00",
+            "session": ""
+        },
+        {
+            "id": "9679cced7a7539c6",
+            "courseId": "legacy-course-math101",
+            "component": "test",
+            "code": "MTH 101",
+            "title": "Foundations of Algebra",
+            "courseTitle": "Foundations of Algebra",
+            "description": "Core algebraic reasoning, expressions, equations, and functions.",
+            "courseUnit": 3,
+            "sessionId": "session-2026-2027",
+            "semesterId": "semester-harmattan-2026-2027",
+            "maxMark": 0,
+            "duration": 2,
+            "questionCount": 2,
+            "startAt": "2026-09-27T18:26:00+02:00",
+            "endAt": "2026-09-27T22:50:00+02:00",
+            "status": "draft",
+            "createdAt": "2026-09-29T19:23:54+02:00",
+            "session": ""
         }
     ],
     "questions": [
@@ -232,6 +325,24 @@
             "topic": "",
             "difficulty": "medium",
             "status": "published"
+        },
+        {
+            "id": "1d5312f6245c92c8",
+            "examId": "ff9b0cfabddc827b",
+            "text": "aryhufejwer",
+            "options": [
+                "rrrr",
+                "ttr",
+                "yr",
+                "ydde"
+            ],
+            "correctOptions": [
+                2
+            ],
+            "type": "single",
+            "topic": "",
+            "difficulty": "medium",
+            "status": "published"
         }
     ],
     "passwords": [
@@ -259,6 +370,24 @@
             "createdAt": "2026-09-27T18:29:44+02:00",
             "expiresAt": "2026-09-27T22:50:00+02:00",
             "usedAt": "2026-09-27T18:32:24+02:00"
+        },
+        {
+            "id": "5967dc3aacf0ce54",
+            "studentId": "ff274088dc1cdcf5",
+            "examId": "4dbc3b9616d3232b",
+            "passwordHash": "$2y$10$QHZrLIiWfi/0XbeIAHJQcuV31AJ583KBwXzqcdvLWYSNC8R5y1yE6",
+            "createdAt": "2026-09-29T00:10:18+02:00",
+            "expiresAt": "2026-09-27T23:50:00+02:00",
+            "usedAt": null
+        },
+        {
+            "id": "26b32009d14019e2",
+            "studentId": "ff274088dc1cdcf5",
+            "examId": "math101",
+            "passwordHash": "$2y$10$ywcQrsctFVSAzicbRtXPu.HfZBr6HV5vNPFElc7L/R4kyP2kIcjNW",
+            "createdAt": "2026-09-29T00:10:41+02:00",
+            "expiresAt": "2026-09-27T22:50:00+02:00",
+            "usedAt": null
         }
     ],
     "sessions": [
@@ -478,14 +607,22 @@
             "grade": "F",
             "gradePoint": 0,
             "qualityPoints": 0,
-            "session": ""
+            "session": "",
+            "courseId": "legacy-course-math101",
+            "component": "exam",
+            "rawScore": 20,
+            "scaledScore": 20,
+            "semesterId": "semester-harmattan-2026-2027",
+            "academicSessionId": "session-2026-2027",
+            "academicSemesterId": "semester-harmattan-2026-2027",
+            "examSessionId": "2f2a4936650dc6d5"
         },
         {
             "id": "6e9f1eb78f1d7af9",
             "sessionId": "15ca23933829f743",
             "studentId": "ddde2e5403430513",
             "examId": "cs105",
-            "score": 100,
+            "score": 70,
             "submittedAt": "2026-09-26T22:19:28+02:00",
             "status": "auto_submitted",
             "questions": [
@@ -571,7 +708,15 @@
             "grade": "A",
             "gradePoint": 5,
             "qualityPoints": 15,
-            "session": ""
+            "session": "",
+            "courseId": "legacy-course-cs105",
+            "component": "exam",
+            "rawScore": 100,
+            "scaledScore": 70,
+            "semesterId": "semester-harmattan-2026-2027",
+            "academicSessionId": "session-2026-2027",
+            "academicSemesterId": "semester-harmattan-2026-2027",
+            "examSessionId": "15ca23933829f743"
         },
         {
             "id": "b425353b2d45e48d",
@@ -643,7 +788,15 @@
             "grade": "F",
             "gradePoint": 0,
             "qualityPoints": 0,
-            "session": ""
+            "session": "",
+            "courseId": "legacy-course-cs105",
+            "component": "exam",
+            "rawScore": 0,
+            "scaledScore": 0,
+            "semesterId": "semester-harmattan-2026-2027",
+            "academicSessionId": "session-2026-2027",
+            "academicSemesterId": "semester-harmattan-2026-2027",
+            "examSessionId": "b374a7963e499f1d"
         }
     ],
     "loginTokens": [],
@@ -711,30 +864,10 @@
                 "mode": "warn",
                 "lockAfter": 3
             }
-        }
+        },
+        "resultLogoUrl": "CACSA%20Logo.jpeg"
     },
-    "adminSessions": [
-        {
-            "tokenHash": "35e58ac3ab137d6ffb259f088c61af4b6a2a32d679e440d48f92c0e0f651d70d",
-            "expiresAt": "2026-09-28T21:40:23+02:00",
-            "createdAt": "2026-09-28T20:40:23+02:00",
-            "userId": "bootstrap-superadmin",
-            "email": "adepojutimothy001@gmail.com",
-            "name": "Superadmin",
-            "roleId": "superadmin",
-            "permissions": [
-                "overview",
-                "students",
-                "exams",
-                "questions",
-                "results",
-                "audit",
-                "settings",
-                "roles",
-                "newsletter"
-            ]
-        }
-    ],
+    "adminSessions": [],
     "rateLimits": [],
     "auditEvents": [
         {
@@ -1011,6 +1144,764 @@
                 "email": "adepojutimothy001@gmail.com",
                 "role": "Superadmin"
             }
+        },
+        {
+            "id": "8ba383f96d6ca71c",
+            "timestamp": "2026-09-28T20:52:45+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "administrator_profile_updated",
+            "targetType": "administrator",
+            "targetId": "bootstrap-superadmin",
+            "ipAddress": "::1",
+            "metadata": {
+                "emailChangeRequested": false
+            }
+        },
+        {
+            "id": "4ff8880026f9d858",
+            "timestamp": "2026-09-28T21:33:30+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "admin_logout",
+            "targetType": "admin_session",
+            "targetId": "35e58ac3ab137d6ffb259f088c61af4b6a2a32d679e440d48f92c0e0f651d70d",
+            "ipAddress": "::1",
+            "metadata": []
+        },
+        {
+            "id": "50e7e2f68029e154",
+            "timestamp": "2026-09-28T22:02:22+02:00",
+            "actorType": "system",
+            "actorId": "adepojutimothy25@gmail.com",
+            "actionType": "administrator_registration_requested",
+            "targetType": "administrator_request",
+            "targetId": "ec890d38a9ad5a20",
+            "ipAddress": "::1",
+            "metadata": {
+                "name": "ADEPOJU Timothy Adedeji",
+                "email": "adepojutimothy25@gmail.com"
+            }
+        },
+        {
+            "id": "5614df3e2dbdd621",
+            "timestamp": "2026-09-28T22:04:53+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "admin_login",
+            "targetType": "admin_session",
+            "targetId": "729c0871f7bf66d1a2cdac80a45bb4bc7ec0fb5f4de7bf1146bcf632cc01ad6d",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy001@gmail.com",
+                "role": "Superadmin"
+            }
+        },
+        {
+            "id": "2302085d63dc3ae7",
+            "timestamp": "2026-09-28T22:05:21+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "administrator_request_approved",
+            "targetType": "administrator",
+            "targetId": "b3b11d7f31f30b65",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy25@gmail.com",
+                "name": "ADEPOJU Timothy Adedeji",
+                "role": "Academic Coordinator",
+                "requestId": "ec890d38a9ad5a20"
+            }
+        },
+        {
+            "id": "f21641c9f218372a",
+            "timestamp": "2026-09-28T22:05:49+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "administrator_updated",
+            "targetType": "administrator",
+            "targetId": "b3b11d7f31f30b65",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy25@gmail.com",
+                "role": "Academic Coordinator"
+            }
+        },
+        {
+            "id": "fe71678d48d4afbb",
+            "timestamp": "2026-09-28T22:06:53+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "admin_logout",
+            "targetType": "admin_session",
+            "targetId": "729c0871f7bf66d1a2cdac80a45bb4bc7ec0fb5f4de7bf1146bcf632cc01ad6d",
+            "ipAddress": "::1",
+            "metadata": []
+        },
+        {
+            "id": "3d44f2982e7106c3",
+            "timestamp": "2026-09-28T22:07:24+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy25@gmail.com",
+            "actionType": "admin_login",
+            "targetType": "admin_session",
+            "targetId": "3dc36f5e9f8a61ff0c919d7ad18c453d531b690cde8e19407e54aa5061628518",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy25@gmail.com",
+                "role": "Academic Coordinator"
+            }
+        },
+        {
+            "id": "df10052c93b8e677",
+            "timestamp": "2026-09-28T22:08:08+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy25@gmail.com",
+            "actionType": "administrator_other_sessions_revoked",
+            "targetType": "administrator",
+            "targetId": "b3b11d7f31f30b65",
+            "ipAddress": "::1",
+            "metadata": {
+                "revoked": 0
+            }
+        },
+        {
+            "id": "a6f0b76542574b25",
+            "timestamp": "2026-09-28T22:16:52+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy25@gmail.com",
+            "actionType": "admin_logout",
+            "targetType": "admin_session",
+            "targetId": "3dc36f5e9f8a61ff0c919d7ad18c453d531b690cde8e19407e54aa5061628518",
+            "ipAddress": "::1",
+            "metadata": []
+        },
+        {
+            "id": "0be9249e40070967",
+            "timestamp": "2026-09-28T22:17:06+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "admin_login",
+            "targetType": "admin_session",
+            "targetId": "8cd41936b120c2937081acef5e8cd6f827f66ea42f07f775cadc4c4859ed3941",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy001@gmail.com",
+                "role": "Superadmin"
+            }
+        },
+        {
+            "id": "8c2c374b428af1bf",
+            "timestamp": "2026-09-28T22:17:18+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "administrator_updated",
+            "targetType": "administrator",
+            "targetId": "b3b11d7f31f30b65",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy25@gmail.com",
+                "role": "Academic Coordinator"
+            }
+        },
+        {
+            "id": "b8221027d8e863fb",
+            "timestamp": "2026-09-28T22:19:05+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "administrator_updated",
+            "targetType": "administrator",
+            "targetId": "b3b11d7f31f30b65",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy25@gmail.com",
+                "role": "Academic Coordinator"
+            }
+        },
+        {
+            "id": "84577d2dbdb27dcb",
+            "timestamp": "2026-09-28T23:17:19+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "admin_login",
+            "targetType": "admin_session",
+            "targetId": "8871a67481106ebb36d848bceeaaa56d68d1622f2838364029b1c07caa5562f7",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy001@gmail.com",
+                "role": "Superadmin"
+            }
+        },
+        {
+            "id": "35a55fe2ef3f9437",
+            "timestamp": "2026-09-28T23:51:17+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "semester_updated",
+            "targetType": "semester",
+            "targetId": "semester-harmattan-2026-2027",
+            "ipAddress": "::1",
+            "metadata": {
+                "label": "Harmattan Semester"
+            }
+        },
+        {
+            "id": "fdb665dde6b3574f",
+            "timestamp": "2026-09-28T23:57:21+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "course_updated",
+            "targetType": "course",
+            "targetId": "legacy-course-cs105",
+            "ipAddress": "::1",
+            "metadata": {
+                "course": "CSC 105",
+                "testMaxMark": 0,
+                "examMaxMark": 30
+            }
+        },
+        {
+            "id": "4925f5e56e3573ae",
+            "timestamp": "2026-09-28T23:58:43+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "course_updated",
+            "targetType": "course",
+            "targetId": "legacy-course-4dbc3b9616d3232b",
+            "ipAddress": "::1",
+            "metadata": {
+                "course": "GST111",
+                "testMaxMark": 30,
+                "examMaxMark": 70
+            }
+        },
+        {
+            "id": "48edceee6d8d1fe6",
+            "timestamp": "2026-09-28T23:59:03+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "course_updated",
+            "targetType": "course",
+            "targetId": "legacy-course-cs105",
+            "ipAddress": "::1",
+            "metadata": {
+                "course": "CSC 105",
+                "testMaxMark": 30,
+                "examMaxMark": 70
+            }
+        },
+        {
+            "id": "3f235c598b3677cb",
+            "timestamp": "2026-09-28T23:59:58+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "question_added",
+            "targetType": "question",
+            "targetId": "1d5312f6245c92c8",
+            "ipAddress": "::1",
+            "metadata": {
+                "examId": "ff9b0cfabddc827b",
+                "course": "GST111",
+                "text": "aryhufejwer"
+            }
+        },
+        {
+            "id": "109b5c601c90a8c3",
+            "timestamp": "2026-09-29T00:00:26+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "question_updated",
+            "targetType": "question",
+            "targetId": "1d5312f6245c92c8",
+            "ipAddress": "::1",
+            "metadata": {
+                "examId": "ff9b0cfabddc827b",
+                "course": "GST111",
+                "text": "aryhufejwer",
+                "changedFields": [
+                    "status"
+                ]
+            }
+        },
+        {
+            "id": "ea976b08ede4c44c",
+            "timestamp": "2026-09-29T00:00:32+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "question_updated",
+            "targetType": "question",
+            "targetId": "1d5312f6245c92c8",
+            "ipAddress": "::1",
+            "metadata": {
+                "examId": "ff9b0cfabddc827b",
+                "course": "GST111",
+                "text": "aryhufejwer",
+                "changedFields": [
+                    "status"
+                ]
+            }
+        },
+        {
+            "id": "025e2e25674da52e",
+            "timestamp": "2026-09-29T00:00:51+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "question_updated",
+            "targetType": "question",
+            "targetId": "1d5312f6245c92c8",
+            "ipAddress": "::1",
+            "metadata": {
+                "examId": "ff9b0cfabddc827b",
+                "course": "GST111",
+                "text": "aryhufejwer",
+                "changedFields": [
+                    "status"
+                ]
+            }
+        },
+        {
+            "id": "dbf11489cb9e8125",
+            "timestamp": "2026-09-29T00:04:31+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "question_updated",
+            "targetType": "question",
+            "targetId": "1d5312f6245c92c8",
+            "ipAddress": "::1",
+            "metadata": {
+                "examId": "ff9b0cfabddc827b",
+                "course": "GST111",
+                "text": "aryhufejwer",
+                "changedFields": [
+                    "examId",
+                    "text",
+                    "options",
+                    "correctOptions",
+                    "type",
+                    "status"
+                ]
+            }
+        },
+        {
+            "id": "094463df7e2a9f68",
+            "timestamp": "2026-09-29T00:04:34+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "question_updated",
+            "targetType": "question",
+            "targetId": "1d5312f6245c92c8",
+            "ipAddress": "::1",
+            "metadata": {
+                "examId": "ff9b0cfabddc827b",
+                "course": "GST111",
+                "text": "aryhufejwer",
+                "changedFields": [
+                    "status"
+                ]
+            }
+        },
+        {
+            "id": "b451cacc25263e89",
+            "timestamp": "2026-09-29T00:08:17+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "semester_created",
+            "targetType": "semester",
+            "targetId": "3ac853afa2cbec36",
+            "ipAddress": "::1",
+            "metadata": {
+                "label": "Rain Semester",
+                "source": "course_form"
+            }
+        },
+        {
+            "id": "fe646c26f9a8101b",
+            "timestamp": "2026-09-29T00:08:17+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "course_updated",
+            "targetType": "course",
+            "targetId": "legacy-course-4dbc3b9616d3232b",
+            "ipAddress": "::1",
+            "metadata": {
+                "course": "GST111",
+                "testMaxMark": 30,
+                "examMaxMark": 70
+            }
+        },
+        {
+            "id": "52a9b271749e6ad6",
+            "timestamp": "2026-09-29T00:10:18+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "exam_password_generated",
+            "targetType": "exam_password",
+            "targetId": "5967dc3aacf0ce54",
+            "ipAddress": "::1",
+            "metadata": {
+                "matricNumber": "2023009196",
+                "course": "GST111"
+            }
+        },
+        {
+            "id": "72cd29829338e22d",
+            "timestamp": "2026-09-29T00:10:41+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "exam_password_generated",
+            "targetType": "exam_password",
+            "targetId": "26b32009d14019e2",
+            "ipAddress": "::1",
+            "metadata": {
+                "matricNumber": "2023009196",
+                "course": "MTH 101"
+            }
+        },
+        {
+            "id": "d9084df6b4318510",
+            "timestamp": "2026-09-29T00:17:01+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "course_component_updated",
+            "targetType": "course_component",
+            "targetId": "ff9b0cfabddc827b",
+            "ipAddress": "::1",
+            "metadata": {
+                "course": "GST111",
+                "component": "test",
+                "status": "published",
+                "maxMark": 30
+            }
+        },
+        {
+            "id": "02bed1d6c858689c",
+            "timestamp": "2026-09-29T00:17:32+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "admin_login",
+            "targetType": "admin_session",
+            "targetId": "efe9f6fa767320e0d5fc204b4b7d27447b2aff8fc2df6023d363b982358b4a6e",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy001@gmail.com",
+                "role": "Superadmin"
+            }
+        },
+        {
+            "id": "acfb7714db4ef82f",
+            "timestamp": "2026-09-29T00:18:14+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "course_component_updated",
+            "targetType": "course_component",
+            "targetId": "ff9b0cfabddc827b",
+            "ipAddress": "::1",
+            "metadata": {
+                "course": "GST111",
+                "component": "test",
+                "status": "published",
+                "maxMark": 30
+            }
+        },
+        {
+            "id": "70bafd8292a4a87e",
+            "timestamp": "2026-09-29T00:18:35+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "course_component_updated",
+            "targetType": "course_component",
+            "targetId": "ff9b0cfabddc827b",
+            "ipAddress": "::1",
+            "metadata": {
+                "course": "GST111",
+                "component": "test",
+                "status": "active",
+                "maxMark": 30
+            }
+        },
+        {
+            "id": "d3fdf2ae9025a988",
+            "timestamp": "2026-09-29T00:20:02+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "course_component_updated",
+            "targetType": "course_component",
+            "targetId": "ff9b0cfabddc827b",
+            "ipAddress": "::1",
+            "metadata": {
+                "course": "GST111",
+                "component": "test",
+                "status": "published",
+                "maxMark": 30
+            }
+        },
+        {
+            "id": "7f63e175c414d4f7",
+            "timestamp": "2026-09-29T00:20:17+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "course_component_updated",
+            "targetType": "course_component",
+            "targetId": "ff9b0cfabddc827b",
+            "ipAddress": "::1",
+            "metadata": {
+                "course": "GST111",
+                "component": "test",
+                "status": "active",
+                "maxMark": 30
+            }
+        },
+        {
+            "id": "4d02f5d9883d3f77",
+            "timestamp": "2026-09-29T00:38:11+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "role_updated",
+            "targetType": "role",
+            "targetId": "assistant_academic_coordinator",
+            "ipAddress": "::1",
+            "metadata": {
+                "role": "Assistant Academic Coordinator",
+                "permissions": [
+                    "overview",
+                    "students",
+                    "exams",
+                    "questions",
+                    "results",
+                    "audit",
+                    "newsletter"
+                ]
+            }
+        },
+        {
+            "id": "841af843fc1d0c73",
+            "timestamp": "2026-09-29T00:38:30+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "administrator_disabled",
+            "targetType": "administrator",
+            "targetId": "b3b11d7f31f30b65",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy25@gmail.com"
+            }
+        },
+        {
+            "id": "72aad1a7f6917db2",
+            "timestamp": "2026-09-29T00:38:37+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "administrator_updated",
+            "targetType": "administrator",
+            "targetId": "b3b11d7f31f30b65",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy25@gmail.com",
+                "role": "Academic Coordinator"
+            }
+        },
+        {
+            "id": "116c77b3522e2aab",
+            "timestamp": "2026-09-29T00:40:14+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "academic_session_updated",
+            "targetType": "academic_session",
+            "targetId": "session-2026-2027",
+            "ipAddress": "::1",
+            "metadata": {
+                "label": "2026/2027"
+            }
+        },
+        {
+            "id": "57c9c66e12b54107",
+            "timestamp": "2026-09-29T00:40:26+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "admin_logout",
+            "targetType": "admin_session",
+            "targetId": "efe9f6fa767320e0d5fc204b4b7d27447b2aff8fc2df6023d363b982358b4a6e",
+            "ipAddress": "::1",
+            "metadata": []
+        },
+        {
+            "id": "aad7b3f6a5245e86",
+            "timestamp": "2026-09-29T00:40:51+02:00",
+            "actorType": "system",
+            "actorId": "adepojutimothy25@gmail.com",
+            "actionType": "administrator_password_reset_requested",
+            "targetType": "administrator",
+            "targetId": "b3b11d7f31f30b65",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy25@gmail.com"
+            }
+        },
+        {
+            "id": "41b57547b9b6e0df",
+            "timestamp": "2026-09-29T00:41:54+02:00",
+            "actorType": "system",
+            "actorId": "adepojutimothy25@gmail.com",
+            "actionType": "administrator_password_reset_completed",
+            "targetType": "administrator",
+            "targetId": "b3b11d7f31f30b65",
+            "ipAddress": "::1",
+            "metadata": {
+                "accountStatus": "suspended_pending_superadmin_reactivation"
+            }
+        },
+        {
+            "id": "9d67a37fbfadcd9f",
+            "timestamp": "2026-09-29T00:42:10+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "admin_login",
+            "targetType": "admin_session",
+            "targetId": "a9e7d37885dffbcc0b29527ada5359b57d55659d148e1f057afba1859483a094",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy001@gmail.com",
+                "role": "Superadmin"
+            }
+        },
+        {
+            "id": "1301166e138bad1f",
+            "timestamp": "2026-09-29T00:42:29+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "administrator_updated",
+            "targetType": "administrator",
+            "targetId": "b3b11d7f31f30b65",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy25@gmail.com",
+                "role": "Academic Coordinator"
+            }
+        },
+        {
+            "id": "30e4a03116ddf9e8",
+            "timestamp": "2026-09-29T19:20:59+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "admin_login",
+            "targetType": "admin_session",
+            "targetId": "412289a10efca475f3fa65ccf2baaab22f0af339444f3313169014078a62a274",
+            "ipAddress": "::1",
+            "metadata": {
+                "email": "adepojutimothy001@gmail.com",
+                "role": "Superadmin"
+            }
+        },
+        {
+            "id": "265a65163062ce42",
+            "timestamp": "2026-09-29T19:22:08+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "course_component_updated",
+            "targetType": "course_component",
+            "targetId": "e926e66d2eb63630",
+            "ipAddress": "::1",
+            "metadata": {
+                "course": "CSC 105",
+                "component": "test",
+                "status": "draft",
+                "maxMark": 30
+            }
+        },
+        {
+            "id": "e7e5e3045f429882",
+            "timestamp": "2026-09-29T19:22:17+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "course_component_updated",
+            "targetType": "course_component",
+            "targetId": "e926e66d2eb63630",
+            "ipAddress": "::1",
+            "metadata": {
+                "course": "CSC 105",
+                "component": "test",
+                "status": "published",
+                "maxMark": 30
+            }
+        },
+        {
+            "id": "b13e970be36885ca",
+            "timestamp": "2026-09-29T19:22:20+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "course_component_updated",
+            "targetType": "course_component",
+            "targetId": "e926e66d2eb63630",
+            "ipAddress": "::1",
+            "metadata": {
+                "course": "CSC 105",
+                "component": "test",
+                "status": "active",
+                "maxMark": 30
+            }
+        },
+        {
+            "id": "9b503ac37df67f78",
+            "timestamp": "2026-09-29T19:22:44+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "course_component_updated",
+            "targetType": "course_component",
+            "targetId": "ff9b0cfabddc827b",
+            "ipAddress": "::1",
+            "metadata": {
+                "course": "GST111",
+                "component": "test",
+                "status": "active",
+                "maxMark": 30
+            }
+        },
+        {
+            "id": "fccc7c015498ca18",
+            "timestamp": "2026-09-29T19:23:15+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "course_component_updated",
+            "targetType": "course_component",
+            "targetId": "cs105",
+            "ipAddress": "::1",
+            "metadata": {
+                "course": "CSC 105",
+                "component": "exam",
+                "status": "active",
+                "maxMark": 70
+            }
+        },
+        {
+            "id": "be63a5eb598bbab0",
+            "timestamp": "2026-09-29T19:23:40+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "course_component_updated",
+            "targetType": "course_component",
+            "targetId": "4dbc3b9616d3232b",
+            "ipAddress": "::1",
+            "metadata": {
+                "course": "GST111",
+                "component": "exam",
+                "status": "active",
+                "maxMark": 70
+            }
+        },
+        {
+            "id": "8057387a8223a721",
+            "timestamp": "2026-09-29T19:23:54+02:00",
+            "actorType": "admin",
+            "actorId": "adepojutimothy001@gmail.com",
+            "actionType": "course_updated",
+            "targetType": "course",
+            "targetId": "legacy-course-math101",
+            "ipAddress": "::1",
+            "metadata": {
+                "course": "MTH 101",
+                "testMaxMark": 0,
+                "examMaxMark": 100
+            }
         }
     ],
     "examFlags": [],
@@ -1036,7 +1927,7 @@
         {
             "id": "academic_coordinator",
             "name": "Academic Coordinator",
-            "description": "Manages assessments, questions, students, results, and audit monitoring.",
+            "description": "Manages courses, Test/Exam components, students, results, audit monitoring, settings, and newsletters.",
             "maxUsers": 2,
             "systemLocked": false,
             "permissions": [
@@ -1053,7 +1944,7 @@
         {
             "id": "assistant_academic_coordinator",
             "name": "Assistant Academic Coordinator",
-            "description": "Supports student, assessment, question, and results administration.",
+            "description": "Supports courses, Test/Exam components, students, results, audit monitoring, settings, and newsletters.",
             "maxUsers": 2,
             "systemLocked": false,
             "permissions": [
@@ -1062,14 +1953,33 @@
                 "exams",
                 "questions",
                 "results",
-                "newsletter"
+                "audit",
+                "newsletter",
+                "settings"
             ]
         }
     ],
-    "adminUsers": [],
+    "adminUsers": [
+        {
+            "id": "b3b11d7f31f30b65",
+            "name": "ADEPOJU Timothy Adedeji",
+            "email": "adepojutimothy25@gmail.com",
+            "phoneNumber": "+2349037358242",
+            "passwordHash": "$2y$10$oWuEjsvWBIeLWDWd.U0qVOkPIfzaz2QgcB9qReo/dGZVDLT0PYBrK",
+            "roleId": "academic_coordinator",
+            "active": true,
+            "verified": true,
+            "createdAt": "2026-09-28T22:05:21+02:00",
+            "approvedAt": "2026-09-28T22:05:21+02:00",
+            "approvedBy": "adepojutimothy001@gmail.com"
+        }
+    ],
     "adminUserActivity": {
         "bootstrap-superadmin": {
-            "lastLoginAt": "2026-09-28T20:40:23+02:00"
+            "lastLoginAt": "2026-09-29T19:20:59+02:00"
+        },
+        "b3b11d7f31f30b65": {
+            "lastLoginAt": "2026-09-28T22:07:24+02:00"
         }
     },
     "newsletterSubscribers": [
@@ -1097,7 +2007,124 @@
         }
     ],
     "newsletters": [],
-    "pendingAdminRequests": [],
-    "adminProfileOverrides": [],
-    "adminEmailVerifications": []
+    "pendingAdminRequests": [
+        {
+            "id": "ec890d38a9ad5a20",
+            "name": "ADEPOJU Timothy Adedeji",
+            "email": "adepojutimothy25@gmail.com",
+            "phoneNumber": "+2349037358242",
+            "status": "approved",
+            "createdAt": "2026-09-28T22:02:22+02:00",
+            "ipAddress": "::1",
+            "roleId": "academic_coordinator",
+            "resolvedAt": "2026-09-28T22:05:21+02:00",
+            "resolvedBy": "adepojutimothy001@gmail.com",
+            "emailDelivery": "accepted_by_gmail_smtp"
+        }
+    ],
+    "adminProfileOverrides": {
+        "bootstrap-superadmin": {
+            "name": "ALGEBRA",
+            "phoneNumber": "",
+            "email": "adepojutimothy001@gmail.com",
+            "passwordHash": "$2y$10$2uTWijekM5e32FutE5qAievugm2JuFtVMTiXQGvu.1ijTiJc.MQD."
+        }
+    },
+    "adminEmailVerifications": [],
+    "adminPasswordResets": [],
+    "academicSessions": [
+        {
+            "id": "session-2026-2027",
+            "label": "2026/2027",
+            "isActive": true,
+            "createdAt": "2026-09-28T23:24:53+02:00"
+        }
+    ],
+    "semesters": [
+        {
+            "id": "semester-harmattan-2026-2027",
+            "sessionId": "session-2026-2027",
+            "label": "Harmattan Semester",
+            "isActive": true,
+            "startDate": "2026-09-01",
+            "endDate": "2027-02-28",
+            "createdAt": "2026-09-28T23:24:53+02:00"
+        },
+        {
+            "id": "3ac853afa2cbec36",
+            "sessionId": "session-2026-2027",
+            "label": "Rain Semester",
+            "isActive": false,
+            "startDate": "2027-03-01",
+            "endDate": "2027-08-31",
+            "createdAt": "2026-09-29T00:08:17+02:00"
+        }
+    ],
+    "courses": [
+        {
+            "id": "legacy-course-math101",
+            "code": "MTH 101",
+            "title": "Foundations of Algebra",
+            "description": "Core algebraic reasoning, expressions, equations, and functions.",
+            "courseUnit": 3,
+            "sessionId": "session-2026-2027",
+            "semesterId": "semester-harmattan-2026-2027",
+            "testMaxMark": 0,
+            "examMaxMark": 100,
+            "legacyExamOnly": true,
+            "createdAt": "2026-09-28T23:24:53+02:00"
+        },
+        {
+            "id": "legacy-course-stat201",
+            "code": "STA 201",
+            "title": "Statistics & Probability",
+            "description": "Distributions, sampling, probability rules, and data interpretation.",
+            "courseUnit": 3,
+            "sessionId": "session-2026-2027",
+            "semesterId": "semester-harmattan-2026-2027",
+            "testMaxMark": 0,
+            "examMaxMark": 100,
+            "legacyExamOnly": true,
+            "createdAt": "2026-09-28T23:24:53+02:00"
+        },
+        {
+            "id": "legacy-course-cs105",
+            "code": "CSC 105",
+            "title": "Digital Logic",
+            "description": "Boolean algebra, logic gates, and introductory circuit design.",
+            "courseUnit": 3,
+            "sessionId": "session-2026-2027",
+            "semesterId": "semester-harmattan-2026-2027",
+            "testMaxMark": 30,
+            "examMaxMark": 70,
+            "legacyExamOnly": true,
+            "createdAt": "2026-09-28T23:24:53+02:00"
+        },
+        {
+            "id": "legacy-course-d5fef04adf91bcb6",
+            "code": "STA101",
+            "title": "Descriptive Statistics",
+            "description": "Don't worry",
+            "courseUnit": 3,
+            "sessionId": "session-2026-2027",
+            "semesterId": "semester-harmattan-2026-2027",
+            "testMaxMark": 0,
+            "examMaxMark": 100,
+            "legacyExamOnly": true,
+            "createdAt": "2026-09-28T23:24:53+02:00"
+        },
+        {
+            "id": "legacy-course-4dbc3b9616d3232b",
+            "code": "GST111",
+            "title": "English",
+            "description": "",
+            "courseUnit": 2,
+            "sessionId": "session-2026-2027",
+            "semesterId": "3ac853afa2cbec36",
+            "testMaxMark": 30,
+            "examMaxMark": 70,
+            "legacyExamOnly": true,
+            "createdAt": "2026-09-28T23:24:53+02:00"
+        }
+    ]
 }
