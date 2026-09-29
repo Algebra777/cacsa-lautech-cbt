@@ -1,6 +1,6 @@
-# Alge CBT
+# CACSA LAUTECH CBT
 
-Alge CBT is a PHP and vanilla JavaScript assessment application. The student portal, admin workspace, and REST API share the same JSON data store. No Node build step or external UI framework is required.
+CACSA LAUTECH CBT is a PHP and vanilla JavaScript assessment application. The student portal, admin workspace, and REST API share the same JSON data store. No Node build step or external UI framework is required.
 
 ## Run locally
 
