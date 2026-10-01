@@ -1,6 +1,16 @@
 Options -MultiViews
 RewriteEngine On
 
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "same-origin"
+    Header always set Cross-Origin-Opener-Policy "same-origin"
+    Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    Header always set Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self'"
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" "expr=%{HTTPS} == 'on'"
+</IfModule>
+
 # Clean client-side routes. Existing files (including api.php and assets) continue
 # to be served normally; admin/student paths load the single-page application.
 RewriteCond %{REQUEST_FILENAME} !-f
@@ -19,3 +29,7 @@ RewriteRule ^(?:admin|student)(?:/.*)?$ index.html [L]
 <Files ".env">
     Require all denied
 </Files>
+<FilesMatch "^\.git">
+    Require all denied
+</FilesMatch>
+RewriteRule (^|/)\.git(?:/|$) - [F,L]

@@ -63,7 +63,7 @@
             "questionCount": 15,
             "startAt": "2026-09-23T16:21:00+02:00",
             "endAt": "2026-09-24T01:51:00+02:00",
-            "status": "active",
+            "status": "published",
             "courseUnit": 3,
             "session": "",
             "courseId": "legacy-course-stat201",
@@ -107,7 +107,7 @@
             "questionCount": 20,
             "startAt": "2026-09-24T11:02:00+02:00",
             "endAt": "2026-09-24T11:12:00+02:00",
-            "status": "active",
+            "status": "published",
             "courseUnit": 3,
             "session": "",
             "courseId": "legacy-course-d5fef04adf91bcb6",
@@ -458,7 +458,6 @@
             "id": "7a9d5608c282343d",
             "studentId": "ddde2e5403430513",
             "examId": "stat201",
-            "passwordHash": "$2y$10$bcji0qFyAbmxdHk/UyrWpeHzlD7YF89V6F9wLO2cu1G7AmIKy6PF2",
             "createdAt": "2026-09-23T22:31:04+02:00",
             "expiresAt": "2026-09-24T01:51:00.000Z"
         },
@@ -466,7 +465,6 @@
             "id": "26b32009d14019e2",
             "studentId": "ff274088dc1cdcf5",
             "examId": "math101",
-            "passwordHash": "$2y$10$ywcQrsctFVSAzicbRtXPu.HfZBr6HV5vNPFElc7L/R4kyP2kIcjNW",
             "createdAt": "2026-09-29T00:10:41+02:00",
             "expiresAt": "2026-09-27T22:50:00+02:00",
             "usedAt": null
@@ -475,7 +473,6 @@
             "id": "ba84d8f651f85b35",
             "studentId": "ff274088dc1cdcf5",
             "examId": "cs105",
-            "passwordHash": "$2y$10$CsZR1gWYcifnE84T7H2hr.T3EEvHBCQsHAYo2vjGsuiiiU3DocYAm",
             "createdAt": "2026-09-30T01:37:27+02:00",
             "expiresAt": "2026-09-29T19:50:00+02:00",
             "usedAt": null
@@ -484,7 +481,6 @@
             "id": "7e92b0445fce1e2b",
             "studentId": "ddde2e5403430513",
             "examId": "math101",
-            "passwordHash": "$2y$10$MTSOpXK5RwAnJEh0nZMVOuSOqw5V/cMLQ01PV5nT6trdwLDhizs2u",
             "createdAt": "2026-09-30T01:38:33+02:00",
             "expiresAt": "2026-09-27T22:50:00+02:00",
             "usedAt": null
@@ -493,7 +489,6 @@
             "id": "70ee5e3d35b55d4d",
             "studentId": "ddde2e5403430513",
             "examId": "cs105",
-            "passwordHash": "$2y$10$KJ06EPnUJxPNRp8hKx.RsOBJ6kS1FTUWp7pLSlLNQFqho1MAmjgeu",
             "createdAt": "2026-09-30T01:41:52+02:00",
             "expiresAt": "2026-09-29T19:50:00+02:00",
             "usedAt": null
@@ -502,7 +497,6 @@
             "id": "7e5bc75c9eb1d1a4",
             "studentId": "ddde2e5403430513",
             "examId": "e926e66d2eb63630",
-            "passwordHash": "$2y$10$Xwg0cU2qolqV2v4CdPBwh.uIeZOb6U7NmkIPgBm2qjqPlB8l7EddW",
             "createdAt": "2026-09-30T07:12:45+02:00",
             "expiresAt": "2026-09-30T07:50:00+02:00",
             "usedAt": "2026-09-30T07:23:20+02:00"
@@ -511,7 +505,6 @@
             "id": "16340c37db9e7cab",
             "studentId": "ff274088dc1cdcf5",
             "examId": "e926e66d2eb63630",
-            "passwordHash": "$2y$10$hcVqxMw.W3YiTZXJe4VMeepX825444Bs.5DVUBEjaAdMkQrKQ8OmS",
             "createdAt": "2026-09-30T07:25:03+02:00",
             "expiresAt": "2026-09-30T07:50:00+02:00",
             "usedAt": "2026-09-30T07:35:24+02:00"
@@ -520,7 +513,6 @@
             "id": "d147df8666f34406",
             "studentId": "ff274088dc1cdcf5",
             "examId": "ff9b0cfabddc827b",
-            "passwordHash": "$2y$10$XO3wa.eHaWm9fl//Z4/UbOd8dHubrISXjcmXdB8QkuO3v3hQ6rwGS",
             "createdAt": "2026-10-01T14:04:17+02:00",
             "expiresAt": "2026-10-01T14:50:00+02:00",
             "usedAt": null
@@ -529,7 +521,6 @@
             "id": "d1fdae5d82dbee99",
             "studentId": "ff274088dc1cdcf5",
             "examId": "4dbc3b9616d3232b",
-            "passwordHash": "$2y$10$tElgoJhRrcG8Df0A4MudUOo034v4YP8SuoahxDaOLA3DFJ5RUqAAe",
             "createdAt": "2026-10-01T14:04:25+02:00",
             "expiresAt": "2026-10-01T14:50:00+02:00",
             "usedAt": null
@@ -538,7 +529,6 @@
             "id": "1188e3b9ded53370",
             "studentId": "ddde2e5403430513",
             "examId": "4dbc3b9616d3232b",
-            "passwordHash": "$2y$10$WHCS494Dbhrk/3bqLC21Susnxb//ZFQvUyZbya.JMwHy5d5nYiMOS",
             "createdAt": "2026-10-01T14:28:55+02:00",
             "expiresAt": "2026-10-01T14:50:00+02:00",
             "usedAt": "2026-10-01T14:32:35+02:00"
@@ -1525,7 +1515,6 @@
             "courseUnit": 2
         }
     ],
-    "loginTokens": [],
     "settings": {
         "gradingScale": [
             {
@@ -1608,36 +1597,7 @@
             "time": "02:00",
             "retentionCount": 14,
             "lastScheduledDate": "2026-10-01",
-            "lastBackupAt": "2026-10-01T20:11:55+02:00"
-        }
-    },
-    "adminSessions": [
-        {
-            "tokenHash": "36d64147250b142716f5293ff7308767e7ca57be4f3449b72761ef2804b2f6ce",
-            "expiresAt": "2026-10-02T02:06:36+02:00",
-            "createdAt": "2026-10-01T22:06:46+02:00",
-            "lastSeenAt": "2026-10-02T00:06:36+02:00",
-            "userId": "bootstrap-superadmin",
-            "email": "adepojutimothy001@gmail.com",
-            "name": "ALGEBRA",
-            "roleId": "superadmin",
-            "permissions": [
-                "overview",
-                "students",
-                "exams",
-                "questions",
-                "results",
-                "audit",
-                "settings",
-                "roles",
-                "newsletter"
-            ]
-        }
-    ],
-    "rateLimits": {
-        "41e9175488faabf26fc3a0e913e2c4c9a695f7eb5727c5b52ccea03132346fe4": {
-            "count": 2,
-            "resetAt": 1790892435
+            "lastBackupAt": "2026-10-01T20:09:30+02:00"
         }
     },
     "auditEvents": [
@@ -2943,113 +2903,6 @@
             "metadata": {
                 "filename": "cacsa-cbt-backup_2026-10-01_200930.json"
             }
-        },
-        {
-            "id": "afdf7f20ba223ee7",
-            "timestamp": "2026-10-01T20:11:55+02:00",
-            "actorType": "system",
-            "actorId": "backup_scheduler",
-            "actionType": "backup_created_scheduled",
-            "targetType": "backup",
-            "targetId": "cacsa-cbt-backup_2026-10-01_201155.json",
-            "ipAddress": "127.0.0.1",
-            "metadata": {
-                "filename": "cacsa-cbt-backup_2026-10-01_201155.json"
-            }
-        },
-        {
-            "id": "7b31088f0d2f871f",
-            "timestamp": "2026-10-01T20:56:50+02:00",
-            "actorType": "admin",
-            "actorId": "adepojutimothy001@gmail.com",
-            "actionType": "student_updated",
-            "targetType": "student",
-            "targetId": "de0216f7479e6689",
-            "ipAddress": "127.0.0.1",
-            "metadata": {
-                "matricNumber": "2034240344",
-                "name": "Emmanuela",
-                "changedFields": [
-                    "active"
-                ]
-            }
-        },
-        {
-            "id": "92df0668ec8c4e0b",
-            "timestamp": "2026-10-01T21:00:00+02:00",
-            "actorType": "admin",
-            "actorId": "adepojutimothy001@gmail.com",
-            "actionType": "student_updated",
-            "targetType": "student",
-            "targetId": "de0216f7479e6689",
-            "ipAddress": "127.0.0.1",
-            "metadata": {
-                "matricNumber": "2034240344",
-                "name": "Emmanuela",
-                "changedFields": [
-                    "active"
-                ]
-            }
-        },
-        {
-            "id": "175e139e668ce6fb",
-            "timestamp": "2026-10-01T21:01:01+02:00",
-            "actorType": "admin",
-            "actorId": "adepojutimothy001@gmail.com",
-            "actionType": "course_component_updated",
-            "targetType": "course_component",
-            "targetId": "d5fef04adf91bcb6",
-            "ipAddress": "127.0.0.1",
-            "metadata": {
-                "course": "STA101",
-                "component": "exam",
-                "status": "active",
-                "maxMark": 100
-            }
-        },
-        {
-            "id": "1d9c01ef45e9384b",
-            "timestamp": "2026-10-01T21:01:23+02:00",
-            "actorType": "admin",
-            "actorId": "adepojutimothy001@gmail.com",
-            "actionType": "course_component_updated",
-            "targetType": "course_component",
-            "targetId": "stat201",
-            "ipAddress": "127.0.0.1",
-            "metadata": {
-                "course": "STA 201",
-                "component": "exam",
-                "status": "active",
-                "maxMark": 100
-            }
-        },
-        {
-            "id": "eaa6cdccaaa8866e",
-            "timestamp": "2026-10-01T21:07:06+02:00",
-            "actorType": "admin",
-            "actorId": "adepojutimothy001@gmail.com",
-            "actionType": "admin_login",
-            "targetType": "admin_session",
-            "targetId": "4ade8739872d9e8f3d4260d9249b16db343f1cc3a7fc1a3771a4738952278ead",
-            "ipAddress": "127.0.0.1",
-            "metadata": {
-                "email": "adepojutimothy001@gmail.com",
-                "role": "Superadmin"
-            }
-        },
-        {
-            "id": "f05ce2ecd645be6f",
-            "timestamp": "2026-10-01T22:06:46+02:00",
-            "actorType": "admin",
-            "actorId": "adepojutimothy001@gmail.com",
-            "actionType": "admin_login",
-            "targetType": "admin_session",
-            "targetId": "36d64147250b142716f5293ff7308767e7ca57be4f3449b72761ef2804b2f6ce",
-            "ipAddress": "127.0.0.1",
-            "metadata": {
-                "email": "adepojutimothy001@gmail.com",
-                "role": "Superadmin"
-            }
         }
     ],
     "examFlags": [
@@ -3226,7 +3079,6 @@
             "name": "ADEPOJU Timothy Adedeji",
             "email": "adepojutimothy25@gmail.com",
             "phoneNumber": "+2349037358242",
-            "passwordHash": "$2y$10$oWuEjsvWBIeLWDWd.U0qVOkPIfzaz2QgcB9qReo/dGZVDLT0PYBrK",
             "roleId": "academic_coordinator",
             "active": true,
             "verified": true,
@@ -3237,7 +3089,7 @@
     ],
     "adminUserActivity": {
         "bootstrap-superadmin": {
-            "lastLoginAt": "2026-10-01T22:06:46+02:00"
+            "lastLoginAt": "2026-10-01T20:04:22+02:00"
         },
         "b3b11d7f31f30b65": {
             "lastLoginAt": "2026-09-28T22:07:24+02:00"
@@ -3298,12 +3150,10 @@
         "bootstrap-superadmin": {
             "name": "ALGEBRA",
             "phoneNumber": "",
-            "email": "adepojutimothy001@gmail.com",
-            "passwordHash": "$2y$10$2uTWijekM5e32FutE5qAievugm2JuFtVMTiXQGvu.1ijTiJc.MQD."
+            "email": "adepojutimothy001@gmail.com"
         }
     },
     "adminEmailVerifications": [],
-    "adminPasswordResets": [],
     "academicSessions": [
         {
             "id": "session-2026-2027",
@@ -3446,5 +3296,10 @@
             "cgpa": 0,
             "calculatedAt": "2026-10-01T19:02:26+02:00"
         }
-    ]
+    ],
+    "_backup": {
+        "format": "cacsa-cbt-backup",
+        "version": 1,
+        "createdAt": "2026-10-01T20:11:55+02:00"
+    }
 }

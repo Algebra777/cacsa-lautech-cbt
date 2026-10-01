@@ -1,0 +1,8 @@
+# Backup archives contain sensitive student and examination data. They are served
+# only by the authenticated API download action, never as public static files.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Deny from all
+</IfModule>
