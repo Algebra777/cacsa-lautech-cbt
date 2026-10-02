@@ -13,12 +13,13 @@ const state = {
   studentAccess: readStored('algeStudentSession'),
   attempt: readStored('algeExamAttempt'),
   exams: [], landingStatus: {openComponents: 0, studentsTesting: 0, clientIp: 'Unavailable', singleSessionLockActive: false}, activePeriod: {sessionLabel: '', semesterLabel: ''}, landingFilters: {search: '', type: 'all', category: 'all'}, adminExams: [], courses: [], academicSessions: [], semesters: [], students: [], questions: [], results: [],
-  dashboard: null, dashboardSelectedOutcomes: [], settings: null, backups: {items: [], settings: {}, nextRunAt: null, directory: 'database/backups/'}, backupRestoreFile: null, backupRestoreInfo: null, report: null, review: null, auditMonitor: [], auditEvents: [], roles: [], adminUsers: [], adminApprovals: {pending: [], recent: [], mailConfigured: false}, pendingApprovalCount: 0, account: null, accountTab: 'profile', newsletterSubscribers: [], newsletterStats: null, newsletters: [], newsletterMailConfigured: false, resultPeriods: [],
+  dashboard: null, dashboardSelectedOutcomes: [], settings: null, backups: {items: [], settings: {}, nextRunAt: null, directory: 'database/backups/'}, backupRestoreFile: null, backupRestoreInfo: null, strictImportReview: null, pdfImportReview: null, questionCourseId: '', questionTargetModal: null, report: null, review: null, auditMonitor: [], auditEvents: [], roles: [], adminUsers: [], adminApprovals: {pending: [], recent: [], mailConfigured: false}, pendingApprovalCount: 0, account: null, accountTab: 'profile', newsletterSubscribers: [], newsletterStats: null, newsletters: [], newsletterMailConfigured: false, resultPeriods: [],
   selectedExamId: null, questionIndex: 0, secondsLeft: 0, timerId: null, availabilityRefreshId: null, landingCountdownId: null, landingCountFrame: null, landingLiveValues: {}, landingStepObserver: null, landingStepsRevealPlayed: false, headlineRotationId: null, loginCountdownId: null, auditPollId: null, approvalPollId: null, devtoolsTimer: null, integrityLast: {}, saveState: 'saved', examTextScale: Math.max(.85, Math.min(1.35, Number(sessionStorage.getItem('algeExamTextScale')) || 1)), calculatorOpen: false, calculatorValue: '0', sidebarOpen: sessionStorage.getItem('algeSidebarOpen') == null ? !window.matchMedia('(max-width: 900px)').matches : sessionStorage.getItem('algeSidebarOpen') !== 'false', landingHeroEntrancePlayed: false,
   loadSerial: 0, route: '', modalTrigger: null, csrfToken: '', passwordResetEmail: sessionStorage.getItem('algeAdminPasswordResetEmail') || '', theme: localStorage.getItem('algeTheme') || 'dark',
   filters: {
     students: {q: '', sort: 'fullName', dir: 'asc', page: 1, status: ''},
     exams: {q: '', sort: 'code', dir: 'asc', page: 1, status: ''},
+    questionDirectory: {q: '', sort: 'code', dir: 'asc', page: 1, missing: ''},
     questions: {q: '', sort: 'text', dir: 'asc', page: 1, status: ''},
     results: {q: '', sort: 'latestSubmittedAt', dir: 'desc', page: 1, status: '', period: ''},
     audit: {from: '', to: '', actor: '', type: '', course: '', page: 1},
@@ -159,7 +160,14 @@ function toast(message, kind = 'info') {
 function showError(error, form = null) {
   const message = error?.message || 'Something went wrong. Please try again.';
   const alert = form?.querySelector('.alert') || document.querySelector('#alert');
-  if (alert) { alert.textContent = message; alert.classList.add('visible'); }
+  if (alert) {
+    alert.textContent = message; alert.classList.add('visible');
+    if (form?.id === 'pdf-question-upload-form' && form.dataset.provider === 'gemini' && /OpenRouter PDF import/i.test(message)) {
+      const fallback = document.createElement('button');
+      fallback.type = 'button'; fallback.className = 'outline-btn small-btn'; fallback.dataset.action = 'openrouter-pdf-question-import'; fallback.dataset.id = form.dataset.courseId;
+      fallback.textContent = 'Try OpenRouter PDF import'; alert.append(document.createTextNode(' '), fallback);
+    }
+  }
   toast(message, 'error');
 }
 function setBusy(element, busy) {
@@ -187,7 +195,7 @@ function query(action, params = {}) {
 }
 async function api(action, options = {}, params = {}) {
   const {admin: requireAdmin = false, ...fetchOptions} = options;
-  const adminAction = requireAdmin || ['admin-logout', 'admin-account', 'students', 'students-bulk', 'exam-password', 'questions', 'questions-bulk', 'results', 'result-review', 'calculate-student-result', 'settings', 'student-results', 'dashboard', 'dashboard-outcomes', 'audit-monitor', 'audit-events', 'exam-session-unlock', 'roles', 'admin-users', 'admin-approvals', 'newsletter-subscribers', 'newsletters', 'courses', 'course-components', 'academic-sessions', 'semesters', 'backups'].includes(action) || (action === 'exams' && options.method && options.method !== 'GET');
+  const adminAction = requireAdmin || ['admin-logout', 'admin-account', 'students', 'students-bulk', 'exam-password', 'questions', 'questions-bulk', 'questions-bulk-delete', 'questions-publish-target', 'questions-unpublish-target', 'questions-deduplicate', 'strict-question-parse', 'strict-question-import', 'pdf-question-parse', 'pdf-question-import', 'openrouter-pdf-question-parse', 'openrouter-pdf-question-import', 'results', 'result-review', 'calculate-student-result', 'settings', 'student-results', 'dashboard', 'dashboard-outcomes', 'audit-monitor', 'audit-events', 'exam-session-unlock', 'roles', 'admin-users', 'admin-approvals', 'newsletter-subscribers', 'newsletters', 'courses', 'course-components', 'academic-sessions', 'semesters', 'backups'].includes(action) || (action === 'exams' && options.method && options.method !== 'GET');
   const mutating = ['POST', 'PUT', 'DELETE'].includes(String(options.method || 'GET').toUpperCase());
   if (mutating && action !== 'auth-csrf') await refreshCsrfToken();
   const headers = {...(options.body ? {'Content-Type': 'application/json'} : {}), ...(mutating && state.csrfToken ? {'X-CSRF-Token': state.csrfToken} : {}), ...options.headers};
@@ -248,6 +256,10 @@ function listQuery(name) {
   const filter = state.filters[name];
   return {search: filter.q, sort: filter.sort, order: filter.dir, page: filter.page, pageSize: PAGE_SIZE, status: filter.status};
 }
+function questionDirectoryQuery() {
+  const filter = state.filters.questionDirectory;
+  return {search: filter.q, sort: filter.sort, order: filter.dir, page: filter.page, pageSize: PAGE_SIZE, missingQuestionBank: filter.missing === 'missing' ? 'true' : ''};
+}
 function resultPeriodParts(value = state.filters.results.period) {
   const [sessionId = '', semesterId = ''] = String(value || '').split('|');
   return {sessionId, semesterId};
@@ -261,9 +273,13 @@ function normalizeList(name, response) {
   state.meta[name] = response.meta || {page: 1, pages: 1, total: items.length};
   return items;
 }
+function portalLoader() {
+  return '<section class="portal-loader" role="status" aria-live="polite" aria-label="Preparing the CACSA LAUTECH CBT assessment portal"><div class="portal-loader-orbit" aria-hidden="true"><span></span><img class="portal-loader-logo" src="CACSA%20Logo.jpeg" alt=""></div><div class="portal-loader-copy"><p class="portal-loader-kicker">CACSA LAUTECH CBT</p><h1>Preparing your assessment portal</h1><p>Loading courses and assessment information for you.</p></div><div class="portal-loader-progress" aria-hidden="true"><i></i></div><p class="portal-loader-status"><span aria-hidden="true"></span>Connecting to assessment services</p></section>';
+}
 function loadingPage(admin = false) {
-  const loading = '<div class="loading-state" role="status"><span class="spinner" aria-hidden="true"></span><span>Loading…</span></div>';
+  const loading = portalLoader();
   if (admin) return adminShell(loading);
+  if ((parts()[1] || 'selection') === 'selection') return loading;
   return `${topbar()}<main class="center-page">${loading}</main>`;
 }
 function assessmentIcon(exam) {
@@ -442,7 +458,7 @@ async function render() {
     if (isAdmin) setAdminSidebarOpen(state.sidebarOpen);
     if (!isAdmin && route[1] === 'exam') { startTimer(); startDevtoolsSignal(); }
     if (!isAdmin && route[1] === 'login') startLoginCountdown();
-    if (!isAdmin && (route[1] || 'selection') === 'selection') startLandingCountdowns();
+    if (!isAdmin && (route[1] || 'selection') === 'selection') { enhanceLandingVisuals(); startLandingCountdowns(); }
     // Refresh the same public assessment payload so windows and the live-status strip
     // stay current without inventing a separate monitoring feed.
     if (!isAdmin && (route[1] || 'selection') === 'selection') scheduleAvailabilityRefresh();
@@ -569,9 +585,26 @@ async function loadAdmin(route) {
     state.courses = normalizeList('exams', courses); state.academicSessions = sessions.items || []; state.semesters = semesters.items || [];
   }
   if (page === 'questions') {
-    const examId = route[2];
-    const [exams, questions] = await Promise.all([api('exams', {admin: true}, {pageSize: 100}), api('questions', {}, {...listQuery('questions'), examId})]);
-    state.adminExams = exams.items || []; state.questions = normalizeList('questions', questions);
+    const routeId = route[2];
+    if (routeId) {
+      // Course ids are now the canonical Question Bank route. A component id in an
+      // old bookmark is still resolved to its course so existing links keep working.
+      const courses = await api('courses', {}, {pageSize: 100});
+      state.courses = courses.items || [];
+      state.adminExams = state.courses.flatMap(course => course.components || []);
+      const course = state.courses.find(item => item.id === routeId)
+        || state.courses.find(item => (item.components || []).some(component => component.id === routeId));
+      state.questionCourseId = course?.id || '';
+      if (course) {
+        const questions = await api('questions', {}, {...listQuery('questions'), courseId: course.id});
+        state.questions = normalizeList('questions', questions);
+      } else state.questions = [];
+    } else {
+      const courses = await api('courses', {}, questionDirectoryQuery());
+      state.courses = normalizeList('questionDirectory', courses);
+      state.adminExams = state.courses.flatMap(course => course.components || []);
+      state.questions = []; state.questionCourseId = '';
+    }
   }
   if (page === 'results') {
     const response = await api('results', {}, {...listQuery('results'), ...resultPeriodParts()});
@@ -645,7 +678,18 @@ function refreshLandingPage() {
   if (!current) return render();
   const template = document.createElement('template'); template.innerHTML = selectionPage().trim();
   current.replaceWith(template.content.firstElementChild);
+  enhanceLandingVisuals();
   startLandingCountdowns();
+}
+function enhanceLandingVisuals() {
+  const landing = document.querySelector('.landing-directory');
+  if (!landing) return;
+  landing.querySelectorAll('.assessment-directory-card').forEach(card => card.classList.add('glow-card'));
+  if (landing.querySelector('.landing-ambient')) return;
+  const ambient = document.createElement('div');
+  ambient.className = 'landing-ambient'; ambient.setAttribute('aria-hidden', 'true');
+  ambient.innerHTML = '<span class="landing-ambient-blob landing-ambient-blob-one"></span><span class="landing-ambient-blob landing-ambient-blob-two"></span><span class="landing-ambient-blob landing-ambient-blob-three"></span>';
+  landing.prepend(ambient);
 }
 function studentLoginPage() {
   const exam = selectedExam();
@@ -826,6 +870,10 @@ function filterBar(name, placeholder, statuses = []) {
   const filter = state.filters[name];
   return `<form class="filter-bar" data-filter-form="${name}"><label class="filter-search"><span class="sr-only">Search ${name}</span><input type="search" name="q" value="${esc(filter.q)}" placeholder="${esc(placeholder)}"></label>${statuses.length ? `<label><span class="sr-only">Status</span><select class="select-field" name="status"><option value="">All statuses</option>${statuses.map(([value, label]) => `<option value="${value}" ${filter.status === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>` : ''}<button class="outline-btn">Search</button>${filter.q || filter.status ? `<button class="ghost-btn" type="button" data-filter-clear="${name}">Clear</button>` : ''}</form>`;
 }
+function questionDirectoryFilterBar() {
+  const filter = state.filters.questionDirectory;
+  return `<form class="filter-bar question-bank-filter" data-question-directory-filter><label class="filter-search"><span class="sr-only">Search courses</span><input type="search" name="q" value="${esc(filter.q)}" placeholder="Search course code or title"></label><label><span class="sr-only">Question-bank completeness</span><select class="select-field" name="missing"><option value="" ${filter.missing ? '' : 'selected'}>All question banks</option><option value="missing" ${filter.missing === 'missing' ? 'selected' : ''}>Needs questions</option></select></label><label><span class="sr-only">Sort courses</span><select class="select-field" name="sort"><option value="code" ${filter.sort === 'code' ? 'selected' : ''}>Sort: course code</option><option value="title" ${filter.sort === 'title' ? 'selected' : ''}>Sort: course title</option></select></label><button class="outline-btn">Search</button>${filter.q || filter.missing || filter.sort !== 'code' ? '<button class="ghost-btn" type="button" data-filter-clear="questionDirectory">Clear</button>' : ''}</form>`;
+}
 function sortHead(name, field, label) {
   const filter = state.filters[name];
   const arrow = filter.sort === field ? (filter.dir === 'asc' ? ' ↑' : ' ↓') : '';
@@ -892,8 +940,8 @@ function dashboardPage() {
   return `${adminHeader('Dashboard', 'Current assessment activity and outcomes.', '<button class="primary-btn" data-route="admin/students">Register student</button>')}<section class="stat-grid">${statCard('Registered students', numeric(stats.students))}${statCard('Active assessments', numeric(stats.activeExams))}${statCard('Completed today', numeric(stats.completedToday))}${statCard('Average score', `${numeric(stats.averageScore)}%`)}</section><div class="admin-grid"><section class="panel"><div class="panel-heading"><h2>Score distribution</h2><span class="chart-caption">Students per score band</span></div>${scoreChart}</section><section class="panel dashboard-outcomes-panel"><div class="panel-heading"><div><h2>Course outcomes</h2><span class="table-muted">Visible assessment components</span></div></div>${outcomeActions}${outcomeList}${pager('outcomes')}</section></div><section class="panel table-panel"><div class="panel-heading"><h2>Recent submissions</h2></div>${resultsTable(data.recent || [], false)}</section>`;
 }
 function studentsPage() {
-  const rows = state.students.map(student => `<tr><td>${esc(student.fullName)}</td><td>${esc(student.matricNumber)}</td><td>${esc(student.department)}</td><td>${esc(student.email)}</td><td>${esc(student.phoneNumber || '---')}</td><td><span class="status-pill ${student.active ? '' : 'status-muted'}">${student.active ? 'Active' : 'Disabled'}</span></td><td class="table-actions"><button class="outline-btn small-btn" data-route="admin/student-results/${esc(student.id)}">Results</button><button class="outline-btn small-btn" data-action="student-password" data-id="${esc(student.id)}">Password</button><button class="outline-btn small-btn" data-action="edit-student" data-id="${esc(student.id)}">Edit</button><button class="${student.active ? 'danger-btn' : 'outline-btn'} small-btn" data-action="student-status" data-id="${esc(student.id)}">${student.active ? 'Disable' : 'Reactivate'}</button><button class="danger-btn small-btn" data-action="delete-student" data-id="${esc(student.id)}">Delete</button></td></tr>`).join('');
-  const table = state.students.length ? `<div class="table-scroll"><table class="data-table"><thead><tr>${sortHead('students', 'fullName', 'Student')}${sortHead('students', 'matricNumber', 'Matric')}${sortHead('students', 'department', 'Department')}${sortHead('students', 'email', 'Email')}${sortHead('students', 'phoneNumber', 'Phone')}<th>Access</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>` : emptyState('No students match your search. Register a student or clear the filters.', '<button class="primary-btn" data-action="new-student">Register student</button>');
+  const rows = state.students.map(student => `<tr><td>${esc(student.fullName)}</td><td>${esc(student.matricNumber)}</td><td>${esc(student.department)}</td><td>${esc(student.email)}</td><td>${esc(student.phoneNumber || '---')}</td><td><span class="status-pill ${student.active ? '' : 'status-muted'}">${student.active ? 'Active' : 'Disabled'}</span></td><td class="table-actions student-table-actions"><button class="outline-btn small-btn" data-route="admin/student-results/${esc(student.id)}">Results</button><button class="outline-btn small-btn" data-action="student-password" data-id="${esc(student.id)}">Password</button><button class="outline-btn small-btn" data-action="edit-student" data-id="${esc(student.id)}">Edit</button><button class="${student.active ? 'danger-btn' : 'outline-btn'} small-btn" data-action="student-status" data-id="${esc(student.id)}">${student.active ? 'Disable' : 'Reactivate'}</button><button class="danger-btn small-btn" data-action="delete-student" data-id="${esc(student.id)}">Delete</button></td></tr>`).join('');
+  const table = state.students.length ? `<div class="table-scroll"><table class="data-table students-table"><thead><tr>${sortHead('students', 'fullName', 'Student')}${sortHead('students', 'matricNumber', 'Matric')}${sortHead('students', 'department', 'Department')}${sortHead('students', 'email', 'Email')}${sortHead('students', 'phoneNumber', 'Phone')}<th>Access</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>` : emptyState('No students match your search. Register a student or clear the filters.', '<button class="primary-btn" data-action="new-student">Register student</button>');
   return `${adminHeader('Students', 'Register students and issue exam passwords.', '<button class="outline-btn" data-action="bulk-students">Import CSV</button><button class="primary-btn" data-action="new-student">+ Register student</button>')}<section class="panel table-panel">${filterBar('students', 'Name, matric number, department, email or phone', [['active', 'Active'], ['disabled', 'Disabled']])}${table}${pager('students')}</section>`;
 }
 function legacyExamsPage() {
@@ -926,10 +974,86 @@ function examsPage() {
   return `${adminHeader('Courses & assessments', 'Create a course once, then manage its separate Test and Exam components.', '<button class="primary-btn" data-action="new-course">+ Create course</button>')}<section class="panel table-panel">${filterBar('exams', 'Course code, title, session or semester')}${state.courses.length ? `<div class="table-scroll"><table class="data-table"><thead><tr>${sortHead('exams', 'code', 'Code')}${sortHead('exams', 'title', 'Course')}<th>Unit</th><th>Session / semester</th><th>Test</th><th>Exam</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>` : emptyState('No courses have been created. Start by setting the active session and semester in Settings.', '<button class="primary-btn" data-action="new-course">Create course</button>')}${pager('exams')}</section>`;
 }
 
-function questionsPage(examId) {
-  const exam = state.adminExams.find(item => item.id === examId);
-  if (!exam) return `${adminHeader('Question bank', 'Choose a course to manage its questions.')}<section class="panel table-panel">${state.adminExams.length ? `<div class="table-scroll"><table class="data-table"><thead><tr><th>Course</th><th>Assessment</th><th>Question target</th><th></th></tr></thead><tbody>${state.adminExams.map(item => `<tr><td><strong>${esc(item.code)}</strong></td><td>${esc(item.title)}</td><td>${numeric(item.questionCount)} questions</td><td><button class="outline-btn small-btn" data-route="admin/questions/${esc(item.id)}">Manage questions</button></td></tr>`).join('')}</tbody></table></div>` : emptyState('Create an exam first, then add its questions.', '<button class="primary-btn" data-route="admin/exams">Create exam</button>')}</section>`;
-  return `${adminHeader(`${esc(exam.code)} question bank`, `Create and publish questions for ${esc(exam.title)}.`, '<button class="outline-btn" data-action="bulk-questions">Import JSON</button><button class="primary-btn" data-action="new-question">+ Add question</button>')}<section class="panel table-panel">${filterBar('questions', 'Search question text', [['published', 'Published'], ['draft', 'Draft']])}${state.questions.length ? `<div class="table-scroll"><table class="data-table"><thead><tr>${sortHead('questions', 'text', 'Question')}<th>Type</th>${sortHead('questions', 'status', 'Status')}<th>Actions</th></tr></thead><tbody>${state.questions.map(question => `<tr><td class="math-rendered">${mathHtml(question.text)}</td><td>${question.type === 'multiple' ? 'Multiple' : 'Single'}</td><td><span class="status-pill ${question.status === 'published' ? '' : 'status-muted'}">${question.status === 'published' ? 'Published' : 'Draft'}</span></td><td class="table-actions"><button class="${question.status === 'published' ? 'outline-btn' : 'primary-btn'} small-btn" data-action="question-status" data-id="${esc(question.id)}" data-status="${question.status === 'published' ? 'draft' : 'published'}">${question.status === 'published' ? 'Unpublish' : 'Publish'}</button><button class="outline-btn small-btn" data-action="edit-question" data-id="${esc(question.id)}">Edit</button><button class="danger-btn small-btn" data-action="delete-question" data-id="${esc(question.id)}">Delete</button></td></tr>`).join('')}</tbody></table></div>` : emptyState('No questions match your search. Add the first question for this course.', '<button class="primary-btn" data-action="new-question">Add question</button>')}${pager('questions')}</section><button class="outline-btn" style="margin-top:18px" data-route="admin/exams">Back to exams</button>`;
+function strictQuestionReviewPage(course) {
+  const review = state.strictImportReview;
+  if (!review || review.courseId !== course.id) return `${adminHeader(`${esc(course.code)} strict import review`, 'Review imported questions before saving any drafts.', '<button class="outline-btn" data-route="admin/questions/' + esc(course.id) + '">← Back to questions</button>')}<section class="panel">${emptyState('This strict-format review is no longer available. Parse the source again to create a new review.', '<button class="primary-btn" data-action="strict-question-import-form" data-id="' + esc(course.id) + '">Strict-format import</button>')}</section>`;
+  const items = review.items || [];
+  const selectedCount = items.filter(item => item.selected !== false).length;
+  const cards = items.map((item, index) => {
+    const options = Array.isArray(item.options) ? item.options : [];
+    const correct = Array.isArray(item.correctOptionIndexes) ? item.correctOptionIndexes : [];
+    return `<article class="question-import-review-card" data-strict-import-item><header><label class="pdf-review-select"><input type="checkbox" data-strict-import-include ${item.selected !== false ? 'checked' : ''}> Import question ${index + 1}</label><span class="pdf-confidence high">Strict format parsed</span></header><label class="form-field">Question text<textarea data-strict-import-question rows="3" required>${esc(item.questionText || '')}</textarea></label><div class="pdf-review-options">${options.map((option, optionIndex) => `<label><span>Option ${String.fromCharCode(65 + optionIndex)}</span><input data-strict-import-option value="${esc(option)}" required><b><input type="checkbox" data-strict-import-correct value="${optionIndex}" ${correct.includes(optionIndex) ? 'checked' : ''}> Correct</b></label>`).join('')}</div><p class="pdf-answer-mode" data-strict-answer-mode>${correct.length > 1 ? 'Multiple answers selected' : 'Single answer selected'}</p></article>`;
+  }).join('');
+  return `${adminHeader(`${esc(course.code)} strict import review`, `Review ${items.length} parsed question${items.length === 1 ? '' : 's'} for this shared course pool.`, '<button class="outline-btn" data-action="cancel-strict-question-review" data-id="' + esc(course.id) + '">Cancel review</button>')}<section class="panel pdf-review-overview"><div><span class="section-kicker">Strict-format import</span><h2>Review before importing</h2><p>Nothing has been saved yet. Check the question text, options, and correct answer(s), then deselect any item you do not want.</p></div><dl><div><dt>Source</dt><dd>${esc(review.filename || 'Strict-format text')}</dd></div><div><dt>Parsed</dt><dd>${items.length}</dd></div><div><dt>Selected</dt><dd data-strict-import-selected-count>${selectedCount}</dd></div></dl></section><form id="strict-question-review-form" data-course-id="${esc(course.id)}"><p class="pdf-import-honesty"><strong>All selected questions will be saved as Draft.</strong> They are not available to students until an administrator publishes them to Test or Exam.</p><div class="pdf-review-list">${cards}</div><div class="modal-actions pdf-review-actions"><button class="outline-btn" type="button" data-action="cancel-strict-question-review" data-id="${esc(course.id)}">Discard review</button><button class="primary-btn">Import reviewed questions as Draft</button></div></form>`;
+}
+function pdfQuestionReviewPage(course) {
+  const review = state.pdfImportReview;
+  if (!review || review.courseId !== course.id) return `${adminHeader(`${esc(course.code)} PDF import review`, 'Review imported PDF questions before saving any drafts.', '<button class="outline-btn" data-route="admin/questions/' + esc(course.id) + '">← Back to questions</button>')}<section class="panel pdf-import-empty">${emptyState('This PDF review is no longer available. Upload the PDF again to create a new review.', '<button class="primary-btn" data-action="pdf-question-import" data-id="' + esc(course.id) + '">Import PDF</button>')}</section>`;
+  const provider = review.provider === 'openrouter' ? 'openrouter' : 'gemini';
+  const providerLabel = provider === 'openrouter' ? 'OpenRouter' : 'Gemini';
+  const items = review.items || [];
+  const lowCount = items.filter(item => item.confidence === 'low').length;
+  const selectedCount = items.filter(item => item.selected !== false).length;
+  const questionCards = items.map((item, index) => {
+    const options = Array.isArray(item.options) ? item.options : [];
+    const correct = Array.isArray(item.correctOptionIndexes) ? item.correctOptionIndexes : [];
+    const low = item.confidence === 'low';
+    return `<article class="pdf-review-question ${low ? 'low-confidence' : ''}" data-pdf-import-item data-item-index="${index}"><header><label class="pdf-review-select"><input type="checkbox" data-pdf-import-include ${item.selected !== false ? 'checked' : ''}> Import question ${index + 1}</label><span class="pdf-confidence ${low ? 'low' : 'high'}">${low ? 'Low confidence --- review answer key' : 'High confidence'}</span></header><label class="form-field">Question text<textarea data-pdf-import-question rows="3" required>${esc(item.questionText || '')}</textarea></label><div class="pdf-review-options">${options.map((option, optionIndex) => `<label><span>Option ${String.fromCharCode(65 + optionIndex)}</span><input data-pdf-import-option value="${esc(option)}" required><b><input type="checkbox" data-pdf-import-correct value="${optionIndex}" ${correct.includes(optionIndex) ? 'checked' : ''}> Correct</b></label>`).join('')}</div><p class="pdf-answer-mode" data-pdf-answer-mode>${correct.length > 1 ? 'Multiple answers selected' : 'Single answer selected'}</p></article>`;
+  }).join('');
+  return `${adminHeader(`${esc(course.code)} PDF import review`, `Review ${items.length} parsed question${items.length === 1 ? '' : 's'} for this shared course pool.`, '<button class="outline-btn" data-action="cancel-pdf-question-review" data-id="' + esc(course.id) + '">Cancel review</button>')}<section class="panel pdf-review-overview"><div><span class="section-kicker">${providerLabel} AI-assisted draft import</span><h2>Review before importing</h2><p>Nothing has been saved yet. Low-confidence items appear first; check their question text, options, and correct answer(s) carefully.</p></div><dl><div><dt>PDF</dt><dd>${esc(review.filename || 'Uploaded PDF')}</dd></div><div><dt>Low confidence</dt><dd>${lowCount}</dd></div><div><dt>Selected</dt><dd data-pdf-import-selected-count>${selectedCount}</dd></div></dl></section><form id="pdf-question-review-form" data-course-id="${esc(course.id)}" data-provider="${provider}"><p class="pdf-import-honesty"><strong>All selected questions will be saved as Draft.</strong> Review every item before publishing it to Test or Exam.</p><div class="pdf-review-list">${questionCards}</div><div class="modal-actions pdf-review-actions"><button class="outline-btn" type="button" data-action="cancel-pdf-question-review" data-id="${esc(course.id)}">Discard review</button><button class="primary-btn">Import reviewed questions as Draft</button></div></form>`;
+}
+function updateQuestionBulkSelection() {
+  const selected = [...document.querySelectorAll('[data-question-select]:checked')];
+  const all = [...document.querySelectorAll('[data-question-select]')];
+  const master = document.querySelector('[data-question-select-all]');
+  if (master) { master.checked = Boolean(all.length && selected.length === all.length); master.indeterminate = Boolean(selected.length && selected.length < all.length); }
+  const button = document.querySelector('[data-action="bulk-delete-questions"]');
+  if (button) { button.disabled = !selected.length; button.textContent = `Delete selected (${selected.length})`; }
+  document.querySelectorAll('[data-question-target]').forEach(button => {
+    button.disabled = !selected.length || button.dataset.targetAvailable !== 'true';
+    button.textContent = selected.length ? `Publish selected to ${button.dataset.questionTarget} (${selected.length})` : `Publish selected to ${button.dataset.questionTarget}`;
+  });
+  const label = document.querySelector('[data-question-selection-label]');
+  if (label) label.textContent = selected.length ? `${selected.length} question${selected.length === 1 ? '' : 's'} selected. Choose a component publishing target.` : 'Select questions to publish them to Test or Exam.';
+}
+function questionPublishStatus(question) {
+  const targets = Array.isArray(question.publishedTo) ? question.publishedTo : [];
+  const hasTest = targets.includes('test'), hasExam = targets.includes('exam');
+  if (hasTest && hasExam) return {label: 'Published: Test + Exam', className: 'status-shared'};
+  if (hasTest) return {label: 'Published: Test', className: 'status-test'};
+  if (hasExam) return {label: 'Published: Exam', className: 'status-exam'};
+  return {label: 'Draft --- not published', className: 'status-muted'};
+}
+function questionsPage(courseId) {
+  const course = state.courses.find(item => item.id === (state.questionCourseId || courseId));
+  if (course && parts()[3] === 'strict-review') return strictQuestionReviewPage(course);
+  if (course && parts()[3] === 'pdf-review') return pdfQuestionReviewPage(course);
+  if (!course) {
+    const rows = state.courses.filter(item => (item.components || []).length).map(item => {
+      const parts = (item.components || []).map(component => {
+        const label = component.componentLabel || (String(component.component).toLowerCase() === 'test' ? 'Test' : 'Exam');
+        return `<span class="question-bank-target"><b>${esc(label)}</b> ${numeric(component.questionBankCount)} / ${numeric(component.questionCount)} published</span>`;
+      }).join('');
+      return `<tr><td class="question-bank-course-cell"><strong>${esc(item.code)}</strong><small>${esc(item.title)}</small></td><td>${parts || '<span class="table-muted">No components yet</span>'}</td><td>${numeric(item.questionBankCount)} total <small class="table-muted">${numeric(item.sharedQuestionCount)} shared</small></td><td><button class="outline-btn small-btn" data-route="admin/questions/${esc(item.id)}">Manage questions</button></td></tr>`;
+    }).join('');
+    return `${adminHeader('Question bank', 'Each course now has one shared pool. Publish selected questions deliberately to Test, Exam, or both.')}<section class="panel table-panel question-bank-directory">${questionDirectoryFilterBar()}${rows ? `<div class="table-scroll"><table class="data-table question-bank-table"><thead><tr><th>Course</th><th>Component targets</th><th>Shared pool</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>${pager('questionDirectory')}` : emptyState(state.filters.questionDirectory.q || state.filters.questionDirectory.missing ? 'No courses match this filter.' : 'Create a course component first, then add its questions.', '<button class="primary-btn" data-route="admin/exams">Create course</button>')}</section>`;
+  }
+  const components = (course.components || []).filter(component => component?.id);
+  const targetSummary = components.map(component => {
+    const label = component.componentLabel || (String(component.component).toLowerCase() === 'test' ? 'Test' : 'Exam');
+    return `<div><dt>${esc(label)} target</dt><dd>${numeric(component.questionBankCount)} <small>/ ${numeric(component.questionCount)} published</small></dd></div>`;
+  }).join('');
+  const rows = state.questions.map(question => {
+    const status = questionPublishStatus(question);
+    const targets = [...new Set(Array.isArray(question.publishedTo) ? question.publishedTo.filter(target => ['test', 'exam'].includes(target)) : [])];
+    const publish = targets.length < 2 ? `<button class="outline-btn small-btn" data-action="publish-question" data-id="${esc(question.id)}" data-course-id="${esc(course.id)}">Publish</button>` : '';
+    const unpublish = targets.length ? `<button class="outline-btn small-btn" data-action="unpublish-question" data-id="${esc(question.id)}" data-course-id="${esc(course.id)}">Unpublish</button>` : '';
+    return `<tr><td class="question-selection-cell"><input type="checkbox" data-question-select value="${esc(question.id)}" aria-label="Select question"></td><td class="math-rendered question-preview">${mathHtml(question.text)}</td><td>${Array.isArray(question.options) ? question.options.length : 0} options</td><td><span class="status-pill ${status.className}">${esc(status.label)}</span></td><td class="table-actions">${publish}${unpublish}<button class="outline-btn small-btn" data-action="edit-question" data-id="${esc(question.id)}">Edit</button><button class="danger-btn small-btn" data-action="delete-question" data-id="${esc(question.id)}">Delete</button></td></tr>`;
+  }).join('');
+  const header = `<button class="outline-btn" data-action="bulk-questions">Import JSON</button><button class="outline-btn" data-action="question-import-options" data-id="${esc(course.id)}">Import questions</button><button class="primary-btn" data-action="new-question">+ Add question</button>`;
+  const hasTarget = target => components.some(component => String(component.component || 'exam').toLowerCase() === target);
+  const publishButton = target => { const label = target === 'test' ? 'Test' : 'Exam'; const available = hasTarget(target); return `<button class="outline-btn small-btn" type="button" disabled data-action="publish-selected-to-target" data-question-target="${label}" data-target="${target}" data-target-available="${available}" data-course-id="${esc(course.id)}" title="${available ? `Select questions to publish to ${label}` : `Create a ${label} component before publishing questions to it`}">Publish selected to ${label}</button>`; };
+  return `${adminHeader(`${esc(course.code)} question bank`, `Shared question pool for ${esc(course.title)}. Questions are not tied to one component until you publish them to a target.`, header)}<section class="panel shared-question-overview"><div><span class="section-kicker">Shared question pool</span><h2>${numeric(course.questionBankCount)} questions in this course</h2><p>${numeric(course.sharedQuestionCount)} question${numeric(course.sharedQuestionCount) === 1 ? '' : 's'} currently shared by both Test and Exam.</p></div><dl>${targetSummary}<div><dt>Shared to both</dt><dd>${numeric(course.sharedQuestionCount)}</dd></div></dl></section><section class="panel table-panel">${filterBar('questions', 'Search question text', [])}${rows ? `<div class="question-bulk-actions shared-question-actions"><span class="table-muted" data-question-selection-label>Select questions to publish them to Test or Exam.</span><div>${publishButton('test')}${publishButton('exam')}<button class="danger-btn small-btn" type="button" data-action="bulk-delete-questions" data-course-id="${esc(course.id)}" disabled>Delete selected (0)</button></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th class="question-selection-cell"><input type="checkbox" data-question-select-all aria-label="Select all displayed questions"></th>${sortHead('questions', 'text', 'Question')}<th>Options</th><th>Publish status</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>` : emptyState('No questions in this shared pool yet. Add a question or import a reviewed Draft.', '<button class="primary-btn" data-action="new-question">Add question</button>')}${pager('questions')}</section><button class="outline-btn" style="margin-top:18px" data-route="admin/questions">Back to Question Bank</button>`;
 }
 function resultsTable(items, includePager = false) {
   if (!items.length) return emptyState('No completed results yet. Submitted assessments will appear here.');
@@ -959,7 +1083,7 @@ function auditMonitorRows(items = state.auditMonitor) {
 }
 function auditFilterBar() {
   const filter = state.filters.audit;
-  return `<form class="filter-bar" id="audit-filter-form"><label>From<input name="from" type="date" value="${esc(filter.from)}"></label><label>To<input name="to" type="date" value="${esc(filter.to)}"></label><label>Actor<input name="actor" value="${esc(filter.actor)}" placeholder="Admin email or matric"></label><label>Event type<select class="select-field" name="type"><option value="">All event types</option>${['admin_login','admin_logout','administrator_registration_requested','administrator_request_approved','administrator_request_rejected','administrator_password_reset_requested','administrator_password_reset_completed','student_registered','student_updated','student_disabled','students_bulk_imported','exam_created','exam_updated','exam_deleted','question_added','question_updated','question_deleted','questions_bulk_imported','exam_password_generated','student_exam_login','exam_started','exam_session_unlocked','exam_submitted_manual','exam_submitted_auto','audit_events_deleted','settings_updated','exam_integrity_tab_switch','exam_integrity_blur','exam_integrity_context_menu','exam_integrity_copy','exam_integrity_paste','exam_integrity_devtools'].map(type => `<option value="${type}" ${filter.type === type ? 'selected' : ''}>${type.replaceAll('_', ' ')}</option>`).join('')}</select></label><label>Course<input name="course" value="${esc(filter.course)}" placeholder="e.g. MTH 101"></label><button class="outline-btn">Filter</button><button type="button" class="ghost-btn" data-action="clear-audit-filter">Clear</button></form>`;
+  return `<form class="filter-bar" id="audit-filter-form"><label>From<input name="from" type="date" value="${esc(filter.from)}"></label><label>To<input name="to" type="date" value="${esc(filter.to)}"></label><label>Actor<input name="actor" value="${esc(filter.actor)}" placeholder="Admin email or matric"></label><label>Event type<select class="select-field" name="type"><option value="">All event types</option>${['admin_login','admin_logout','administrator_registration_requested','administrator_request_approved','administrator_request_rejected','administrator_password_reset_requested','administrator_password_reset_completed','student_registered','student_updated','student_disabled','students_bulk_imported','exam_created','exam_updated','exam_deleted','question_added','question_updated','question_deleted','questions_bulk_imported','strict_questions_parsed','strict_questions_imported','pdf_questions_parsed','pdf_questions_imported','exam_password_generated','student_exam_login','exam_started','exam_session_unlocked','exam_submitted_manual','exam_submitted_auto','audit_events_deleted','settings_updated','exam_integrity_tab_switch','exam_integrity_blur','exam_integrity_context_menu','exam_integrity_copy','exam_integrity_paste','exam_integrity_devtools'].map(type => `<option value="${type}" ${filter.type === type ? 'selected' : ''}>${type.replaceAll('_', ' ')}</option>`).join('')}</select></label><label>Course<input name="course" value="${esc(filter.course)}" placeholder="e.g. MTH 101"></label><button class="outline-btn">Filter</button><button type="button" class="ghost-btn" data-action="clear-audit-filter">Clear</button></form>`;
 }
 function auditPage(route) {
   const trail = route[2] === 'trail';
@@ -1084,7 +1208,7 @@ function studentResultsPage() {
   const savedItems = report.calculatedResult?.items || [];
   const calculatedRows = savedItems.map(item => `<tr><td><strong>${esc(item.courseCode)}</strong><small class="table-muted" style="display:block">${esc(item.courseTitle || '')}</small></td><td>${numeric(item.courseUnit)}</td><td>${item.testScore == null ? '---' : numeric(item.testScore).toFixed(1)}</td><td>${item.examScore == null ? '---' : numeric(item.examScore).toFixed(1)}</td><td><strong>${numeric(item.total).toFixed(1)}</strong></td><td>${esc(item.grade)}</td><td>${numeric(item.gradePoint).toFixed(2)}</td><td>${numeric(item.qualityPoints).toFixed(2)}</td></tr>`).join('');
   const calculationAction = complete ? `<button class="primary-btn" data-action="calculate-student-result">${calculated ? 'Recalculate result' : 'Calculate result'}</button>` : '';
-  const printHeader = `<div class="print-result-header"><img src="${esc(state.settings?.resultLogoUrl || 'CACSA%20Logo.jpeg')}" alt="CACSA LAUTECH logo"><div><h1>CACSA LAUTECH CBT</h1><p>Academic result sheet</p></div><div><strong>Date printed</strong><br>${esc(new Date().toLocaleDateString())}</div></div><div class="print-student-meta"><span><strong>Student:</strong> ${esc(student.fullName || '')}</span><span><strong>Matric:</strong> ${esc(student.matricNumber || '')}</span><span><strong>Session:</strong> ${esc(selectedSession.label || '')}</span><span><strong>Semester:</strong> ${esc(selectedSemester.label || '')}</span></div>`;
+  const printHeader = `<div class="print-result-header"><img class="result-sheet-logo" src="${esc(state.settings?.resultLogoUrl || 'CACSA%20Logo.jpeg')}" alt="CACSA LAUTECH logo"><div><h1>CACSA LAUTECH CBT</h1><p>Academic result sheet</p></div><div><strong>Date printed</strong><br>${esc(new Date().toLocaleDateString())}</div></div><div class="print-student-meta"><span><strong>Student:</strong> ${esc(student.fullName || '')}</span><span><strong>Matric:</strong> ${esc(student.matricNumber || '')}</span><span><strong>Session:</strong> ${esc(selectedSession.label || '')}</span><span><strong>Semester:</strong> ${esc(selectedSemester.label || '')}</span></div>`;
   const resultTable = calculated ? `<section class="result-sheet panel table-panel calculated-result">${printHeader}<div class="panel-heading"><div><h2>Calculated result</h2><span class="table-muted">Calculated ${fmtDate(report.calculatedResult.calculatedAt)}</span></div><div class="table-actions"><button class="outline-btn" data-action="export-csv">Export CSV</button><button class="primary-btn" data-action="print-result-sheet">Print result</button></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Course</th><th>Unit</th><th>Test</th><th>Exam</th><th>Total</th><th>Grade</th><th>Grade point</th><th>Quality points</th></tr></thead><tbody>${calculatedRows}</tbody></table></div><div class="print-gpa"><strong>Semester GPA: ${numeric(report.calculatedResult.semesterGpa).toFixed(2)}</strong><strong>Cumulative CGPA: ${numeric(report.calculatedResult.cgpa).toFixed(2)}</strong></div></section>` : '';
   return `${adminHeader(`${esc(student.fullName || '')} · results`, `${esc(student.matricNumber || '')} · ${esc(student.department || '')}`, '<button class="outline-btn" data-route="admin/results">← Back to student results</button>')}<section class="panel result-detail-period"><div><span class="section-kicker">Student result detail</span><h2>${esc(student.fullName || '')}</h2><p>${esc(student.matricNumber || '')}</p></div>${periods.length ? periodSelector : '<span class="table-muted">No submitted periods yet.</span>'}</section><section class="result-course-summary"><div class="panel-heading"><div><h2>Submitted components by course</h2><span class="table-muted">Test and Exam submissions are kept together for each course.</span></div>${calculationAction}</div>${incomplete ? `<p class="result-in-progress-note">${incomplete} of ${report.items.length} course${report.items.length === 1 ? '' : 's'} still in progress. They will be excluded until all required components are submitted.</p>` : '<p class="result-ready-note">All submitted courses are ready for result calculation.</p>'}${groups || emptyState('No submitted components exist for this academic period.')}</section>${resultTable}`;
 }
@@ -1134,7 +1258,25 @@ function closeModal() {
   const modal = document.querySelector('#modal');
   if (modal) modal.remove();
   if (state.modalTrigger?.isConnected) state.modalTrigger.focus();
-  state.modalTrigger = null; activeMathField = null;
+  state.modalTrigger = null; state.questionTargetModal = null; activeMathField = null;
+}
+function setModalRequestBusy(button, busy) {
+  const modal = button.closest('#modal');
+  if (!modal) return setBusy(button, busy);
+  const buttons = [...modal.querySelectorAll('button')];
+  if (busy) {
+    buttons.forEach(item => { item.dataset.modalWasDisabled = item.disabled ? 'true' : 'false'; item.disabled = true; });
+    button.dataset.originalText = button.textContent; button.textContent = 'Working…';
+  } else {
+    buttons.forEach(item => { item.disabled = item.dataset.modalWasDisabled === 'true'; delete item.dataset.modalWasDisabled; });
+    button.textContent = button.dataset.originalText || button.textContent; delete button.dataset.originalText;
+  }
+}
+function showModalActionError(error) {
+  const message = error?.message || 'Something went wrong. Please try again.';
+  const alert = document.querySelector('#modal .modal-action-error');
+  if (alert) { alert.textContent = message; alert.classList.add('visible'); }
+  toast(message, 'error');
 }
 function confirmAction(title, message, label, callback) {
   state.confirmCallback = callback;
@@ -1209,10 +1351,14 @@ function componentForm(component) {
 function questionForm(question = null) {
   const edit = Boolean(question);
   const options = question?.options || [];
-  openModal(edit ? 'Edit question' : 'Add question', `<form id="question-form" data-id="${esc(question?.id || '')}"><div class="alert" role="alert"></div><label class="form-field">Assessment component<select class="select-field" name="examId" required>${state.adminExams.map(exam => `<option value="${esc(exam.id)}" ${exam.id === (question?.examId || parts()[2]) ? 'selected' : ''}>${esc(exam.code)} --- ${esc(exam.componentLabel || exam.component || 'Exam')}</option>`).join('')}</select></label><label class="form-field">Question text<textarea class="math-input math-question-input" data-math-field="Question text" name="text" rows="3" required>${esc(question?.text || '')}</textarea></label>${mathKeyboard()}${[0, 1, 2, 3].map(index => `<label class="form-field">Option ${String.fromCharCode(65 + index)}<textarea class="math-input math-option-input" data-math-field="Option ${String.fromCharCode(65 + index)}" name="o${index}" rows="2" required>${esc(options[index] || '')}</textarea></label>`).join('')}<fieldset class="correct-options"><legend>Correct answer(s)</legend><p>Tick the correct option. For a multiple-answer question, tick every correct option.</p>${[0, 1, 2, 3].map(index => `<label><input type="checkbox" name="correctOptions" value="${index}" ${question?.correctOptions?.includes(index) ? 'checked' : ''}> Option ${String.fromCharCode(65 + index)}</label>`).join('')}</fieldset><label class="form-field">Type<select class="select-field" name="type"><option value="single" ${question?.type !== 'multiple' ? 'selected' : ''}>Single answer</option><option value="multiple" ${question?.type === 'multiple' ? 'selected' : ''}>Multiple answers</option></select></label><label class="form-field">Status<select class="select-field" name="status"><option value="draft" ${question?.status !== 'published' ? 'selected' : ''}>Draft</option><option value="published" ${question?.status === 'published' ? 'selected' : ''}>Published</option></select></label><div class="modal-actions"><button class="primary-btn">${edit ? 'Save changes' : 'Save question'}</button></div></form>`);
+  const course = state.courses.find(item => item.id === (question?.courseId || state.questionCourseId || parts()[2]));
+  if (!course) return toast('Open a course Question Bank before adding or editing a question.', 'error');
+  openModal(edit ? 'Edit question' : 'Add question', `<form id="question-form" data-id="${esc(question?.id || '')}" data-course-id="${esc(course.id)}"><div class="alert" role="alert"></div><p class="form-help"><strong>${esc(course.code)} --- ${esc(course.title)}</strong><br>${edit ? 'Publishing targets are unchanged when you edit a question.' : 'New questions are saved as Draft. Use Publish selected to Test or Exam after saving.'}</p><label class="form-field">Question text<textarea class="math-input math-question-input" data-math-field="Question text" name="text" rows="3" required>${esc(question?.text || '')}</textarea></label>${mathKeyboard()}${[0, 1, 2, 3].map(index => `<label class="form-field">Option ${String.fromCharCode(65 + index)}<textarea class="math-input math-option-input" data-math-field="Option ${String.fromCharCode(65 + index)}" name="o${index}" rows="2" required>${esc(options[index] || '')}</textarea></label>`).join('')}<fieldset class="correct-options"><legend>Correct answer(s)</legend><p>Tick the correct option. For a multiple-answer question, tick every correct option.</p>${[0, 1, 2, 3].map(index => `<label><input type="checkbox" name="correctOptions" value="${index}" ${question?.correctOptions?.includes(index) ? 'checked' : ''}> Option ${String.fromCharCode(65 + index)}</label>`).join('')}</fieldset><label class="form-field">Type<select class="select-field" name="type"><option value="single" ${question?.type !== 'multiple' ? 'selected' : ''}>Single answer</option><option value="multiple" ${question?.type === 'multiple' ? 'selected' : ''}>Multiple answers</option></select></label><div class="modal-actions"><button class="primary-btn">${edit ? 'Save changes' : 'Save Draft question'}</button></div></form>`);
 }
 function bulkQuestionsForm() {
-  openModal('Import questions', `<p>Paste a JSON array. Each entry needs <code>text</code>, <code>options</code> (an array of four strings), <code>correctOptions</code> (zero-based option indexes), and <code>type</code> (<code>single</code> or <code>multiple</code>). Questions are added to this course as drafts unless their status is published.</p><form id="bulk-questions-form"><div class="alert" role="alert"></div><label class="form-field">Questions JSON<textarea name="items" rows="12" spellcheck="false" required></textarea></label><div class="modal-actions"><button class="primary-btn">Import questions</button></div></form>`);
+  const course = state.courses.find(item => item.id === (state.questionCourseId || parts()[2]));
+  if (!course) return toast('Open a course Question Bank before importing questions.', 'error');
+  openModal('Import questions', `<p>Paste a JSON array for <strong>${esc(course.code)}</strong>. Each entry needs <code>text</code>, <code>options</code> (an array of four strings), <code>correctOptions</code> (zero-based option indexes), and <code>type</code> (<code>single</code> or <code>multiple</code>). Every imported question is saved as Draft in this shared course pool.</p><form id="bulk-questions-form" data-course-id="${esc(course.id)}"><div class="alert" role="alert"></div><label class="form-field">Questions JSON<textarea name="items" rows="12" spellcheck="false" required></textarea></label><div class="modal-actions"><button class="primary-btn">Import Draft questions</button></div></form>`);
 }
 function parseCsv(text) {
   const rows = []; let row = [], cell = '', quoted = false;
@@ -1254,6 +1400,67 @@ async function uploadBackup(action, file, fields = {}) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || 'Backup upload failed.');
   return payload;
+}
+const STRICT_QUESTION_TEMPLATE = `Q: What is the binary value of decimal 10?
+A) 1000
+B) 1010
+C) 1100
+D) 1110
+ANS: B
+
+Q: Which of these are programming languages?
+A) Python
+B) HTML
+C) Java
+D) CSS
+ANS: A,C`;
+async function uploadStrictQuestionImport(file, text, courseId) {
+  if (!(file instanceof File) && !String(text || '').trim()) throw new Error('Paste strict-format text or choose a .txt or .docx file first.');
+  if (file instanceof File && String(text || '').trim()) throw new Error('Paste text or choose one file, not both.');
+  if (file instanceof File && file.size > 2 * 1024 * 1024) throw new Error('This file is larger than 2 MB. Split it into smaller question sets before importing.');
+  const data = new FormData(); data.set('courseId', courseId);
+  if (file instanceof File) data.set('source', file); else data.set('text', String(text || '').trim());
+  let response;
+  await refreshCsrfToken();
+  try { response = await fetch(query('strict-question-parse'), {method: 'POST', headers: {'X-CSRF-Token': state.csrfToken}, body: data, credentials: 'same-origin'}); }
+  catch { throw new Error('Cannot reach the server. Check your connection and try again.'); }
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || 'The strict-format questions could not be parsed.');
+  return payload;
+}
+function downloadStrictQuestionTemplate() {
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([STRICT_QUESTION_TEMPLATE], {type: 'text/plain;charset=utf-8'}));
+  link.download = 'cacsa-cbt-strict-question-template.txt'; link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 0);
+}
+function questionImportMethodPicker(course) {
+  if (!course) return toast('Course Question Bank not found.', 'error');
+  openModal('Choose question import method', `<div class="question-import-methods"><p class="table-muted">For <strong>${esc(course.code)}</strong> --- ${esc(course.title)}. Every bulk import is reviewed first and saved as Draft into this shared pool.</p><section class="question-import-method is-ready"><span class="section-kicker">Free --- instant</span><h3>Strict-format import</h3><p>Paste text or upload a .txt or .docx file that follows the Q:, A), B), and ANS: format. No AI, internet, or API key is used.</p><button class="primary-btn" data-action="strict-question-import-form" data-id="${esc(course.id)}">Use strict-format import</button></section><section class="question-import-method is-ready"><span class="section-kicker">AI-assisted</span><h3>PDF import with Gemini</h3><p>Gemini 3.8 Flash reads a PDF, then you review and edit every parsed question before Draft-only import.</p><button class="primary-btn" type="button" data-action="pdf-question-import" data-id="${esc(course.id)}">Use Gemini PDF import</button></section><section class="question-import-method is-ready"><span class="section-kicker">AI-assisted</span><h3>PDF import with OpenRouter</h3><p>Uses OpenRouter's <code>openrouter/free</code> auto-router to select a currently available free model for structured extraction. Availability and extraction quality can differ from Gemini; review every question before publishing.</p><button class="primary-btn" type="button" data-action="openrouter-pdf-question-import" data-id="${esc(course.id)}">Use OpenRouter PDF import</button></section></div>`);
+}
+function strictQuestionImportForm(course) {
+  if (!course) return toast('Course Question Bank not found.', 'error');
+  const example = esc(STRICT_QUESTION_TEMPLATE);
+  openModal('Strict-format question import', `<form id="strict-question-upload-form" data-course-id="${esc(course.id)}"><div class="alert" role="alert"></div><p class="form-help">Use one source: paste text below, or upload a plain-text (.txt) or Word (.docx) file. The parser runs locally on this server --- no AI or external API is involved.</p><section class="strict-import-format"><div><h3>Required format</h3><p>Start every question with <code>Q:</code>, each option with a letter and <code>)</code>, then finish with <code>ANS:</code>. Use commas for multiple correct answers.</p></div><pre>${example}</pre><button class="outline-btn small-btn" type="button" data-action="download-strict-question-template">Download blank template</button></section><label class="form-field">Paste strict-format questions<textarea name="text" rows="13" spellcheck="false" placeholder="Paste questions using the format above"></textarea></label><label class="form-field">Or upload .txt / .docx<input name="source" type="file" accept="text/plain,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx"></label><p class="table-muted">Maximum file size: 2 MB. After parsing, review and edit the questions before importing them as Draft.</p><div class="modal-actions"><button class="outline-btn" type="button" data-action="close-modal">Cancel</button><button class="primary-btn">Parse and review questions</button></div></form>`);
+}
+async function uploadQuestionPdf(file, courseId, provider = 'gemini') {
+  const openRouter = provider === 'openrouter';
+  const limitMb = 10;
+  if (!(file instanceof File)) throw new Error('Choose a PDF file first.');
+  if (file.size > limitMb * 1024 * 1024) throw new Error(`This PDF is larger than ${limitMb} MB. Split it into smaller topic or chapter sections before importing.`);
+  const data = new FormData(); data.set('pdf', file); data.set('courseId', courseId);
+  let response;
+  await refreshCsrfToken();
+  try { response = await fetch(query(openRouter ? 'openrouter-pdf-question-parse' : 'pdf-question-parse'), {method: 'POST', headers: {'X-CSRF-Token': state.csrfToken}, body: data, credentials: 'same-origin'}); }
+  catch { throw new Error('Cannot reach the server. Check your connection and try again.'); }
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || 'The PDF could not be processed.');
+  return payload;
+}
+function pdfQuestionImportForm(course, provider = 'gemini') {
+  if (!course) return toast('Course Question Bank not found.', 'error');
+  const openRouter = provider === 'openrouter', providerLabel = openRouter ? 'OpenRouter' : 'Gemini', limits = '25 pages, 100 questions, and 10 MB';
+  openModal('Import questions from PDF', `<form id="pdf-question-upload-form" data-course-id="${esc(course.id)}" data-provider="${openRouter ? 'openrouter' : 'gemini'}"><div class="alert" role="alert"></div><p class="pdf-import-honesty"><strong>Review required:</strong> ${providerLabel} uses AI to read the document and is not always perfectly accurate, especially for answer keys. Always review every question before publishing.</p><p class="table-muted">For ${esc(course.code)} --- ${esc(course.title)}. Upload one text-based PDF with at most ${limits}. To improve completeness, pages are read in small ordered sections before the combined review opens. Split larger files by topic or chapter, keeping each section's questions and answer key together.</p><label class="form-field">PDF document<input name="pdf" type="file" accept="application/pdf,.pdf" required></label><div class="modal-actions"><button class="outline-btn" type="button" data-action="close-modal">Cancel</button><button class="primary-btn">Read PDF with ${providerLabel} and review</button></div></form>`);
 }
 function restoreBackupValidationForm() {
   openModal('Restore from backup', `<form id="backup-restore-validate-form"><div class="alert" role="alert"></div><p>Choose a CACSA CBT backup JSON file. The server will validate its structure before any restore confirmation is shown.</p><label class="form-field">Backup JSON file<input name="backup" type="file" accept="application/json,.json" required></label><div class="modal-actions"><button class="outline-btn" type="button" data-action="close-modal">Cancel</button><button class="danger-btn">Validate backup</button></div></form>`);
@@ -1370,12 +1577,53 @@ async function handleForm(event) {
       value.startAt = new Date(value.startAt).toISOString(); value.endAt = new Date(value.endAt).toISOString();
       if (id) await put('exams', value, {id}); else await post('exams', value);
       closeModal(); toast(id ? 'Exam updated.' : 'Exam created.', 'success'); render();
+    } else if (form.id === 'strict-question-upload-form') {
+      const file = form.elements.source.files?.[0];
+      const response = await uploadStrictQuestionImport(file, form.elements.text.value, form.dataset.courseId);
+      state.strictImportReview = {courseId: form.dataset.courseId, filename: response.filename, items: (response.items || []).map(item => ({...item, selected: true}))};
+      navigate(`admin/questions/${form.dataset.courseId}/strict-review`);
+    } else if (form.id === 'strict-question-review-form') {
+      const cards = [...form.querySelectorAll('[data-strict-import-item]')];
+      const items = cards.filter(card => card.querySelector('[data-strict-import-include]')?.checked).map((card, index) => {
+        const questionText = String(card.querySelector('[data-strict-import-question]')?.value || '').trim();
+        const options = [...card.querySelectorAll('[data-strict-import-option]')].map(input => String(input.value || '').trim());
+        const correctOptionIndexes = [...card.querySelectorAll('[data-strict-import-correct]:checked')].map(input => Number(input.value));
+        if (!questionText) throw new Error(`Question ${index + 1} needs question text.`);
+        if (options.length < 2 || options.length > 10 || options.some(option => !option)) throw new Error(`Question ${index + 1} needs between 2 and 10 completed options.`);
+        if (!correctOptionIndexes.length) throw new Error(`Select the correct answer or answers for question ${index + 1}.`);
+        return {questionText, options, correctOptionIndexes};
+      });
+      if (!items.length) throw new Error('Select at least one reviewed question to import.');
+      const response = await post('strict-question-import', {courseId: form.dataset.courseId, items});
+      const added = numeric(response.added), skipped = numeric(response.skipped);
+      state.strictImportReview = null; toast(added ? `${added} reviewed question${added === 1 ? '' : 's'} imported as Draft${skipped ? `; ${skipped} existing match${skipped === 1 ? '' : 'es'} skipped.` : '.'}` : `${skipped} selected question${skipped === 1 ? '' : 's'} already exist in this course pool; no duplicates were added.`, added ? 'success' : 'info'); navigate(`admin/questions/${form.dataset.courseId}`);
+    } else if (form.id === 'pdf-question-upload-form') {
+      const file = form.elements.pdf.files?.[0];
+      const provider = form.dataset.provider === 'openrouter' ? 'openrouter' : 'gemini';
+      const response = await uploadQuestionPdf(file, form.dataset.courseId, provider);
+      state.pdfImportReview = {courseId: form.dataset.courseId, provider, filename: response.filename, pages: numeric(response.pages), items: (response.items || []).map(item => ({...item, selected: true}))};
+      navigate(`admin/questions/${form.dataset.courseId}/pdf-review`);
+    } else if (form.id === 'pdf-question-review-form') {
+      const cards = [...form.querySelectorAll('[data-pdf-import-item]')];
+      const items = cards.filter(card => card.querySelector('[data-pdf-import-include]')?.checked).map((card, index) => {
+        const questionText = String(card.querySelector('[data-pdf-import-question]')?.value || '').trim();
+        const options = [...card.querySelectorAll('[data-pdf-import-option]')].map(input => String(input.value || '').trim());
+        const correctOptionIndexes = [...card.querySelectorAll('[data-pdf-import-correct]:checked')].map(input => Number(input.value));
+        if (!questionText) throw new Error(`Question ${index + 1} needs question text.`);
+        if (options.length < 2 || options.length > 10 || options.some(option => !option)) throw new Error(`Question ${index + 1} needs between 2 and 10 completed options.`);
+        if (!correctOptionIndexes.length) throw new Error(`Select the correct answer or answers for question ${index + 1}.`);
+        return {questionText, options, correctOptionIndexes};
+      });
+      if (!items.length) throw new Error('Select at least one reviewed question to import.');
+      const response = await post(form.dataset.provider === 'openrouter' ? 'openrouter-pdf-question-import' : 'pdf-question-import', {courseId: form.dataset.courseId, items});
+      const added = numeric(response.added), skipped = numeric(response.skipped);
+      state.pdfImportReview = null; toast(added ? `${added} reviewed question${added === 1 ? '' : 's'} imported as Draft${skipped ? `; ${skipped} existing match${skipped === 1 ? '' : 'es'} skipped.` : '.'}` : `${skipped} selected question${skipped === 1 ? '' : 's'} already exist in this course pool; no duplicates were added.`, added ? 'success' : 'info'); navigate(`admin/questions/${form.dataset.courseId}`);
     } else if (form.id === 'question-form') {
       const data = new FormData(form), id = form.dataset.id;
       const correctOptions = data.getAll('correctOptions').map(Number);
       if (!correctOptions.length) throw new Error('Select at least one correct answer.');
       if (data.get('type') === 'single' && correctOptions.length !== 1) throw new Error('Select exactly one correct answer for a single-answer question.');
-      const value = {examId: data.get('examId'), text: data.get('text'), options: [0, 1, 2, 3].map(index => data.get(`o${index}`)), correctOptions, type: data.get('type'), status: data.get('status')};
+      const value = {courseId: form.dataset.courseId, text: data.get('text'), options: [0, 1, 2, 3].map(index => data.get(`o${index}`)), correctOptions, type: data.get('type')};
       if (id) await put('questions', value, {id}); else await post('questions', value);
       closeModal(); toast(id ? 'Question updated.' : 'Question saved.', 'success'); render();
     } else if (form.id === 'bulk-questions-form') {
@@ -1383,9 +1631,8 @@ async function handleForm(event) {
       try { items = JSON.parse(form.elements.items.value); }
       catch { throw new Error('This is not valid JSON. Paste a JSON array starting with [ and ending with ].'); }
       if (!Array.isArray(items) || !items.length) throw new Error('Add at least one question to a JSON array.');
-      const examId = parts()[2];
-      items = items.map(item => ({...item, examId}));
-      const response = await post('questions-bulk', {items});
+      const courseId = form.dataset.courseId;
+      const response = await post('questions-bulk', {courseId, items});
       closeModal(); toast(`${numeric(response.added, items.length)} questions imported.`, 'success'); render();
     } else if (form.id === 'backup-settings-form') {
       const values = formData(form);
@@ -1443,6 +1690,10 @@ async function handleForm(event) {
       const response = await post('newsletters', formData(form));
       closeModal();
       toast(`${numeric(response.accepted)} message${numeric(response.accepted) === 1 ? '' : 's'} accepted by the mail server${response.failed ? `; ${numeric(response.failed)} failed.` : '.'}`, response.failed ? 'error' : 'success');
+      render();
+    } else if ('questionDirectoryFilter' in form.dataset) {
+      const data = formData(form), filter = state.filters.questionDirectory;
+      filter.q = String(data.q || '').trim(); filter.missing = String(data.missing || ''); filter.sort = ['code', 'title'].includes(String(data.sort || '')) ? String(data.sort) : 'code'; filter.dir = 'asc'; filter.page = 1;
       render();
     } else if (form.dataset.filterForm) {
       const name = form.dataset.filterForm, data = formData(form);
@@ -1687,6 +1938,13 @@ async function handleAction(button) {
   if (action === 'new-question') return questionForm();
   if (action === 'edit-question') return questionForm(state.questions.find(item => item.id === id));
   if (action === 'bulk-questions') return bulkQuestionsForm();
+  if (action === 'question-import-options') return questionImportMethodPicker(state.courses.find(item => item.id === id || item.id === state.questionCourseId || item.id === parts()[2]));
+  if (action === 'strict-question-import-form') return strictQuestionImportForm(state.courses.find(item => item.id === id || item.id === state.questionCourseId || item.id === parts()[2]));
+  if (action === 'download-strict-question-template') return downloadStrictQuestionTemplate();
+  if (action === 'cancel-strict-question-review') { state.strictImportReview = null; return navigate(`admin/questions/${id || parts()[2]}`); }
+  if (action === 'pdf-question-import') return pdfQuestionImportForm(state.courses.find(item => item.id === id || item.id === state.questionCourseId || item.id === parts()[2]));
+  if (action === 'openrouter-pdf-question-import') return pdfQuestionImportForm(state.courses.find(item => item.id === id || item.id === state.questionCourseId || item.id === parts()[2]), 'openrouter');
+  if (action === 'cancel-pdf-question-review') { state.pdfImportReview = null; return navigate(`admin/questions/${id || parts()[2]}`); }
   if (action === 'admin-logout') {
     try { await post('admin-logout', {}); } catch { /* Local sign out still revokes this browser's access. */ }
     clearAdmin(); sessionStorage.setItem('algeAdminAuthNotice', 'You have been logged out successfully.'); navigate('admin/login'); return;
@@ -1710,6 +1968,94 @@ async function handleAction(button) {
   if (action === 'delete-exam') {
     const exam = state.adminExams.find(item => item.id === id);
     return confirmAction('Delete exam', `Delete ${exam?.code || 'this exam'}? This can affect its questions and existing result links.`, 'Delete exam', async () => { await remove('exams', {id}); toast('Exam deleted.', 'success'); render(); });
+  }
+  if (action === 'deduplicate-draft-questions') {
+    return confirmAction('Clean duplicate Draft questions', 'This removes only exact duplicate Draft questions in this component. One copy is retained, and Published or session-referenced questions are never removed.', 'Clean duplicate Drafts', async () => {
+      const response = await post('questions-deduplicate', {examId: id});
+      toast(response.removed ? `${numeric(response.removed)} duplicate Draft question${numeric(response.removed) === 1 ? '' : 's'} removed.` : 'No removable duplicate Draft questions were found.', response.removed ? 'success' : 'info'); render();
+    });
+  }
+  if (action === 'publish-selected-to-target') {
+    const courseId = button.dataset.courseId, target = button.dataset.target;
+    const ids = [...document.querySelectorAll('[data-question-select]:checked')].map(input => input.value).filter(Boolean);
+    if (!ids.length) return toast('Select one or more questions first.', 'error');
+    const targetLabel = target === 'test' ? 'Test' : 'Exam', otherTarget = target === 'test' ? 'exam' : 'test', otherLabel = otherTarget === 'test' ? 'Test' : 'Exam';
+    const selected = state.questions.filter(question => ids.includes(question.id));
+    const overlap = selected.filter(question => Array.isArray(question.publishedTo) && question.publishedTo.includes(otherTarget));
+    if (overlap.length) {
+      const names = overlap.slice(0, 8).map(question => `<li>${esc(String(question.text || 'Untitled question').replace(/\s+/g, ' ').slice(0, 140))}</li>`).join('');
+      const remaining = overlap.length - Math.min(overlap.length, 8);
+      return openModal(`Confirm publishing to ${targetLabel}`, `<p><strong>${overlap.length} of your selected questions are already published to ${otherLabel}.</strong> Publishing them to ${targetLabel} as well means students may see the same question on both.</p><p>Questions affected:</p><ul class="overlap-question-list">${names}${remaining > 0 ? `<li>…and ${remaining} more selected question${remaining === 1 ? '' : 's'}.</li>` : ''}</ul><div class="modal-actions"><button class="outline-btn" data-action="close-modal">No, keep selection</button><button class="primary-btn" data-action="confirm-question-target-publish" data-course-id="${esc(courseId)}" data-target="${target}" data-question-ids="${esc(ids.join(','))}">Yes, publish to ${targetLabel}</button></div>`);
+    }
+    setBusy(button, true);
+    try {
+      const response = await post('questions-publish-target', {courseId, target, ids, confirmOverlap: false});
+      toast(`${numeric(response.newlyAssigned)} question${numeric(response.newlyAssigned) === 1 ? '' : 's'} published to ${targetLabel}.`, 'success'); render();
+    } catch (error) { showError(error); } finally { if (button.isConnected) setBusy(button, false); }
+    return;
+  }
+  if (action === 'confirm-question-target-publish') {
+    const courseId = button.dataset.courseId, target = button.dataset.target, ids = String(button.dataset.questionIds || '').split(',').filter(Boolean), targetLabel = target === 'test' ? 'Test' : 'Exam';
+    if (!courseId || !ids.length) return toast('The selected questions are no longer available. Refresh and try again.', 'error');
+    setBusy(button, true);
+    try {
+      const response = await post('questions-publish-target', {courseId, target, ids, confirmOverlap: true});
+      toast(`${numeric(response.newlyAssigned)} question${numeric(response.newlyAssigned) === 1 ? '' : 's'} published to ${targetLabel}.`, 'success'); render();
+    } catch (error) { showError(error); } finally { if (button.isConnected) setBusy(button, false); }
+    return;
+  }
+  if (action === 'publish-question' || action === 'unpublish-question') {
+    const question = state.questions.find(item => item.id === id), courseId = button.dataset.courseId;
+    const currentTargets = [...new Set(Array.isArray(question?.publishedTo) ? question.publishedTo.filter(target => ['test', 'exam'].includes(target)) : [])];
+    if (!question || !courseId) return toast('This question is no longer available. Refresh the page and try again.', 'error');
+    const targetLabel = target => target === 'test' ? 'Test' : 'Exam';
+    if (action === 'publish-question') {
+      if (currentTargets.length === 2) return toast('This question is already published to both Test and Exam.', 'info');
+      openModal('Publish question', `<div class="alert modal-action-error" role="alert"></div><p>Choose where to publish this question. Existing publication targets remain in place; selecting another target can make the question available to both.</p><div class="modal-actions unpublish-choice-actions"><button class="outline-btn" data-action="confirm-question-publish" data-course-id="${esc(courseId)}" data-id="${esc(question.id)}" data-targets="test">Publish to Test only</button><button class="outline-btn" data-action="confirm-question-publish" data-course-id="${esc(courseId)}" data-id="${esc(question.id)}" data-targets="exam">Publish to Exam only</button><button class="primary-btn" data-action="confirm-question-publish" data-course-id="${esc(courseId)}" data-id="${esc(question.id)}" data-targets="test,exam">Publish to both</button><button class="ghost-btn" data-action="close-modal">Cancel</button></div>`);
+      state.questionTargetModal = {mode: 'publish', questionId: question.id, courseId, open: true}; return;
+    }
+    if (!currentTargets.length) return toast('This question is already a Draft. Refresh the page to see its current status.', 'info');
+    if (currentTargets.length === 1) {
+      const target = currentTargets[0], label = targetLabel(target);
+      openModal('Unpublish question', `<div class="alert modal-action-error" role="alert"></div><p>Unpublish this question from ${label}?</p><div class="modal-actions"><button class="outline-btn" data-action="close-modal">Cancel</button><button class="danger-btn" data-action="confirm-question-unpublish" data-course-id="${esc(courseId)}" data-id="${esc(question.id)}" data-targets="${target}">Unpublish question</button></div>`);
+      state.questionTargetModal = {mode: 'unpublish', questionId: question.id, courseId, open: true}; return;
+    }
+    openModal('Unpublish question', `<div class="alert modal-action-error" role="alert"></div><p>This question is currently published to both Test and Exam. Choose where to remove it.</p><div class="modal-actions unpublish-choice-actions"><button class="outline-btn" data-action="confirm-question-unpublish" data-course-id="${esc(courseId)}" data-id="${esc(question.id)}" data-targets="test">Unpublish from Test only</button><button class="outline-btn" data-action="confirm-question-unpublish" data-course-id="${esc(courseId)}" data-id="${esc(question.id)}" data-targets="exam">Unpublish from Exam only</button><button class="danger-btn" data-action="confirm-question-unpublish" data-course-id="${esc(courseId)}" data-id="${esc(question.id)}" data-targets="test,exam">Unpublish from both</button><button class="ghost-btn" data-action="close-modal">Cancel</button></div>`);
+    state.questionTargetModal = {mode: 'unpublish', questionId: question.id, courseId, open: true}; return;
+  }
+  if (action === 'confirm-question-publish') {
+    const courseId = button.dataset.courseId, questionId = button.dataset.id, targets = String(button.dataset.targets || '').split(',').filter(target => ['test', 'exam'].includes(target));
+    if (!courseId || !questionId || !targets.length) return toast('The publish request is incomplete. Refresh and try again.', 'error');
+    setModalRequestBusy(button, true);
+    try {
+      for (const target of targets) await post('questions-publish-target', {courseId, target, ids: [questionId], confirmOverlap: true});
+      closeModal();
+      const names = targets.map(target => target === 'test' ? 'Test' : 'Exam').join(' and ');
+      toast(`Question published to ${names}.`, 'success'); await render();
+    } catch (error) { showModalActionError(error); setModalRequestBusy(button, false); }
+    return;
+  }
+  if (action === 'confirm-question-unpublish') {
+    const courseId = button.dataset.courseId, questionId = button.dataset.id, targets = String(button.dataset.targets || '').split(',').filter(target => ['test', 'exam'].includes(target));
+    if (!courseId || !questionId || !targets.length) return toast('The unpublish request is incomplete. Refresh and try again.', 'error');
+    setModalRequestBusy(button, true);
+    try {
+      await post('questions-unpublish-target', {courseId, questionId, targets});
+      closeModal();
+      const names = targets.map(target => target === 'test' ? 'Test' : 'Exam').join(' and ');
+      toast(`Question unpublished from ${names}.`, 'success'); await render();
+    } catch (error) { showModalActionError(error); setModalRequestBusy(button, false); }
+    return;
+  }
+  if (action === 'bulk-delete-questions') {
+    const courseId = button.dataset.courseId;
+    const examId = button.dataset.examId;
+    const ids = [...document.querySelectorAll('[data-question-select]:checked')].map(input => input.value).filter(Boolean);
+    if (!ids.length) return toast('Select one or more questions first.', 'error');
+    return confirmAction('Delete selected questions', `Permanently delete ${ids.length} selected question${ids.length === 1 ? '' : 's'} from this ${courseId ? 'shared course pool' : 'component'}?`, 'Delete selected questions', async () => {
+      const response = await post('questions-bulk-delete', {courseId, examId, ids});
+      toast(`${numeric(response.removed)} question${numeric(response.removed) === 1 ? '' : 's'} deleted.`, 'success'); render();
+    });
   }
   if (action === 'delete-question') return confirmAction('Delete question', 'Delete this question permanently?', 'Delete question', async () => { await remove('questions', {id}); toast('Question deleted.', 'success'); render(); });
   if (action === 'confirm-action') {
@@ -1806,7 +2152,7 @@ document.addEventListener('click', async event => {
   const pageButton = event.target.closest('[data-page-list]');
   if (pageButton) { state.filters[pageButton.dataset.pageList].page = numeric(pageButton.dataset.page, 1); render(); return; }
   const clearButton = event.target.closest('[data-filter-clear]');
-  if (clearButton) { const filter = state.filters[clearButton.dataset.filterClear]; filter.q = ''; filter.status = ''; if (clearButton.dataset.filterClear === 'results') filter.period = ''; filter.page = 1; render(); return; }
+  if (clearButton) { const filter = state.filters[clearButton.dataset.filterClear]; filter.q = ''; filter.status = ''; if (clearButton.dataset.filterClear === 'results') filter.period = ''; if (clearButton.dataset.filterClear === 'questionDirectory') { filter.missing = ''; filter.sort = 'code'; filter.dir = 'asc'; } filter.page = 1; render(); return; }
   const questionButton = event.target.closest('[data-question-index]');
   if (questionButton) { state.questionIndex = numeric(questionButton.dataset.questionIndex); resetScratchCalculator(); render(); return; }
   const mathButton = event.target.closest('[data-math-insert]');
@@ -1827,6 +2173,26 @@ document.addEventListener('input', event => {
     if (submit) submit.disabled = event.target.value !== 'RESTORE';
     return;
   }
+  if (event.target.matches('[data-pdf-import-include], [data-pdf-import-correct]')) {
+    const form = event.target.closest('#pdf-question-review-form');
+    const selected = form?.querySelectorAll('[data-pdf-import-include]:checked').length || 0;
+    document.querySelectorAll('[data-pdf-import-selected-count]').forEach(element => element.textContent = String(selected));
+    const card = event.target.closest('[data-pdf-import-item]');
+    const correct = card?.querySelectorAll('[data-pdf-import-correct]:checked').length || 0;
+    const mode = card?.querySelector('[data-pdf-answer-mode]');
+    if (mode) mode.textContent = correct > 1 ? 'Multiple answers selected' : correct === 1 ? 'Single answer selected' : 'Choose a correct answer';
+    return;
+  }
+  if (event.target.matches('[data-strict-import-include], [data-strict-import-correct]')) {
+    const form = event.target.closest('#strict-question-review-form');
+    const selected = form?.querySelectorAll('[data-strict-import-include]:checked').length || 0;
+    document.querySelectorAll('[data-strict-import-selected-count]').forEach(element => element.textContent = String(selected));
+    const card = event.target.closest('[data-strict-import-item]');
+    const correct = card?.querySelectorAll('[data-strict-import-correct]:checked').length || 0;
+    const mode = card?.querySelector('[data-strict-answer-mode]');
+    if (mode) mode.textContent = correct > 1 ? 'Multiple answers selected' : correct === 1 ? 'Single answer selected' : 'Choose a correct answer';
+    return;
+  }
   if (event.target.matches('[data-assessment-search]')) {
     state.landingFilters.search = event.target.value;
     refreshLandingPage();
@@ -1837,6 +2203,11 @@ document.addEventListener('input', event => {
   if (event.target.matches('[data-math-field]')) updateMathPreview(event.target);
 });
 document.addEventListener('change', async event => {
+  if (event.target.matches('[data-question-select-all]')) {
+    document.querySelectorAll('[data-question-select]').forEach(input => { input.checked = event.target.checked; });
+    updateQuestionBulkSelection(); return;
+  }
+  if (event.target.matches('[data-question-select]')) { updateQuestionBulkSelection(); return; }
   if (event.target.matches('[data-result-period-select]')) {
     const [sessionId = '', semesterId = ''] = String(event.target.value || '').split('|');
     const studentId = parts()[2] || state.report?.student?.id;

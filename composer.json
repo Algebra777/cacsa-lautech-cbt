@@ -1,0 +1,8 @@
+{
+    "name": "cacsa-lautech/cbt",
+    "description": "CACSA LAUTECH computer-based testing system",
+    "license": "proprietary",
+    "require": {
+        "smalot/pdfparser": "^2.12"
+    }
+}

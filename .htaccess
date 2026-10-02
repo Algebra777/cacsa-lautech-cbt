@@ -1,6 +1,11 @@
 Options -MultiViews
 RewriteEngine On
 
+<IfModule mod_php.c>
+    php_value upload_max_filesize 12M
+    php_value post_max_size 13M
+</IfModule>
+
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"
     Header always set X-Frame-Options "DENY"
@@ -13,6 +18,7 @@ RewriteEngine On
 
 # Clean client-side routes. Existing files (including api.php and assets) continue
 # to be served normally; admin/student paths load the single-page application.
+RewriteRule ^vendor(?:/|$) - [F,L]
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^(?:admin|student)(?:/.*)?$ index.html [L]
@@ -29,6 +35,9 @@ RewriteRule ^(?:admin|student)(?:/.*)?$ index.html [L]
 <Files ".env">
     Require all denied
 </Files>
+<FilesMatch "^composer\.(?:json|lock)$">
+    Require all denied
+</FilesMatch>
 <FilesMatch "^\.git">
     Require all denied
 </FilesMatch>

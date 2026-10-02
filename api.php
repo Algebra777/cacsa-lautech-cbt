@@ -57,12 +57,15 @@ function loadLocalEnvironment(): void {
         $line = trim($line);
         if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '=')) continue;
         [$key, $value] = explode('=', $line, 2); $key = trim($key); $value = trim($value);
-        if (!preg_match('/^CBT_[A-Z0-9_]+$/', $key) || getenv($key) !== false) continue;
+        if (!preg_match('/^(?:CBT_|GEMINI_|OPENROUTER_)[A-Z0-9_]+$/', $key) || getenv($key) !== false) continue;
         if ((str_starts_with($value, '"') && str_ends_with($value, '"')) || (str_starts_with($value, "'") && str_ends_with($value, "'"))) $value = substr($value, 1, -1);
         putenv($key . '=' . $value); $_ENV[$key] = $value;
     }
 }
 loadLocalEnvironment();
+
+$composerAutoload = __DIR__ . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
+if (is_readable($composerAutoload)) require_once $composerAutoload;
 
 const DEV_ADMIN_EMAIL = 'adepojutimothy001@gmail.com';
 // Development bootstrap only. Set CBT_ADMIN_EMAIL and CBT_ADMIN_PASSWORD_HASH in production.
@@ -70,6 +73,16 @@ const DEV_ADMIN_PASSWORD_HASH = '$2y$10$2uTWijekM5e32FutE5qAievugm2JuFtVMTiXQGvu
 const DATA_FILE = __DIR__ . DIRECTORY_SEPARATOR . 'cbt-data.json';
 const DATA_LOCK_FILE = __DIR__ . DIRECTORY_SEPARATOR . '.cbt-data.lock';
 const BACKUP_DIRECTORY = __DIR__ . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . 'backups';
+const PDF_IMPORT_MAX_BYTES = 10 * 1024 * 1024;
+const PDF_IMPORT_MAX_PAGES = 25;
+const PDF_IMPORT_MAX_QUESTIONS = 100;
+const PDF_IMPORT_MAX_TEXT_LENGTH = 150000;
+const OPENROUTER_PDF_IMPORT_MAX_BYTES = 10 * 1024 * 1024;
+const OPENROUTER_PDF_IMPORT_MAX_PAGES = 25;
+const OPENROUTER_PDF_IMPORT_MAX_QUESTIONS = 100;
+const OPENROUTER_PDF_IMPORT_MAX_TEXT_LENGTH = 100000;
+const STRICT_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
+const STRICT_IMPORT_MAX_QUESTIONS = 500;
 const ADMIN_TOKEN_SECONDS = 7200;
 const LOGIN_TOKEN_SECONDS = 900;
 const DEFAULT_GRADING_SCALE = [
@@ -149,6 +162,9 @@ function loadData(): array {
             // Dashboard visibility is a presentation preference only. It never removes
             // courses, assessment components, questions, sessions, or result records.
             'dashboardHiddenOutcomes' => [],
+            // Records schema upgrades that are safe to run again when restored data
+            // from an older backup is brought back into service.
+            'migrations' => [],
             'roles' => DEFAULT_ROLES,
             'adminUsers' => [],
             'pendingAdminRequests' => [],
@@ -177,6 +193,7 @@ function loadData(): array {
     if (!isset($data['adminEmailVerifications']) || !is_array($data['adminEmailVerifications'])) { $data['adminEmailVerifications'] = []; $migrated = true; }
     if (!isset($data['adminPasswordResets']) || !is_array($data['adminPasswordResets'])) { $data['adminPasswordResets'] = []; $migrated = true; }
     if (!isset($data['settings']) || !is_array($data['settings'])) { $data['settings'] = ['gradingScale' => DEFAULT_GRADING_SCALE, 'integrityPolicy' => DEFAULT_INTEGRITY_POLICY, 'resultLogoUrl' => 'CACSA%20Logo.jpeg']; $migrated = true; }
+    if (!isset($data['migrations']) || !is_array($data['migrations'])) { $data['migrations'] = []; $migrated = true; }
     if (!isset($data['settings']['gradingScale']) || !is_array($data['settings']['gradingScale'])) { $data['settings']['gradingScale'] = DEFAULT_GRADING_SCALE; $migrated = true; }
     if (!isset($data['settings']['integrityPolicy']) || !is_array($data['settings']['integrityPolicy'])) { $data['settings']['integrityPolicy'] = DEFAULT_INTEGRITY_POLICY; $migrated = true; }
     if (!isset($data['settings']['examSecurity']) || !is_array($data['settings']['examSecurity'])) { $data['settings']['examSecurity'] = DEFAULT_EXAM_SECURITY; $migrated = true; }
@@ -273,6 +290,17 @@ function loadData(): array {
     unset($exam);
     foreach ($data['questions'] as &$question) if (!array_key_exists('status', $question)) { $question['status'] = 'published'; $migrated = true; }
     unset($question);
+    // This upgrade changes only the live question-bank ownership model. Exam-session
+    // snapshots already stored in $data['sessions'] are intentionally never touched.
+    // A fresh server backup and an immutable audit trail are written before any record
+    // is changed, and the migration itself is field-based so a later re-run is safe.
+    if (sharedQuestionPoolMigrationNeeded($data)) {
+        $safetyBackup = createBackup($data, 'manual');
+        auditEvent($data, 'system', 'system', 'shared_question_pool_migration_started', 'question_bank', 'shared-pool-v1', ['safetyBackup' => $safetyBackup['filename'], 'questionCount' => count($data['questions'])]);
+        $migration = migrateSharedQuestionPools($data);
+        auditEvent($data, 'system', 'system', 'shared_question_pool_migrated', 'question_bank', 'shared-pool-v1', ['safetyBackup' => $safetyBackup['filename'], 'migratedQuestions' => $migration['migrated'], 'unresolvedQuestions' => $migration['unresolved']]);
+        $migrated = true;
+    }
     if ($migrated) saveData($data);
     return $data;
 }
@@ -354,6 +382,325 @@ function uploadedBackupPayload(): array {
     $raw = file_get_contents((string)$upload['tmp_name']); $decoded = json_decode((string)$raw, true);
     if (json_last_error() !== JSON_ERROR_NONE) respond(['error' => 'The uploaded file is not valid JSON.'], 422);
     return validateBackupPayload($decoded);
+}
+
+function sharedQuestionPoolMigrationNeeded(array $data): bool {
+    foreach ($data['questions'] ?? [] as $question) {
+        if (!is_array($question) || empty($question['courseId']) || !isset($question['publishedTo']) || !is_array($question['publishedTo']) || !array_key_exists('legacyComponentId', $question)) return true;
+    }
+    return false;
+}
+
+function normalizeQuestionPublishTargets(mixed $targets): array {
+    $targets = is_array($targets) ? $targets : [];
+    return array_values(array_unique(array_filter(array_map(static fn($target) => strtolower(trim((string)$target)), $targets), static fn($target) => in_array($target, ['test', 'exam'], true))));
+}
+
+function questionsPublishedForComponent(array $data, array $component): array {
+    $courseId = (string)($component['courseId'] ?? '');
+    $target = strtolower((string)($component['component'] ?? 'exam')) === 'test' ? 'test' : 'exam';
+    if ($courseId === '') return [];
+    return array_values(array_filter($data['questions'] ?? [], static fn($question) => ($question['courseId'] ?? '') === $courseId && in_array($target, normalizeQuestionPublishTargets($question['publishedTo'] ?? []), true)));
+}
+
+function migrateSharedQuestionPools(array &$data): array {
+    $components = [];
+    foreach ($data['exams'] ?? [] as $component) if (!empty($component['id'])) $components[(string)$component['id']] = $component;
+    $migrated = 0; $unresolved = 0;
+    foreach ($data['questions'] as &$question) {
+        if (!is_array($question)) { $unresolved++; continue; }
+        $legacyComponentId = (string)($question['legacyComponentId'] ?? $question['examId'] ?? '');
+        $component = $components[$legacyComponentId] ?? null;
+        if (!is_array($component) || empty($component['courseId'])) { $unresolved++; continue; }
+        $before = [$question['courseId'] ?? null, $question['publishedTo'] ?? null, $question['legacyComponentId'] ?? null];
+        $componentType = strtolower((string)($component['component'] ?? 'exam')) === 'test' ? 'test' : 'exam';
+        $question['courseId'] = (string)$component['courseId'];
+        // Keep the original component id (and existing examId) for transition-time
+        // traceability while all new management views use courseId + publishedTo.
+        $question['legacyComponentId'] = $legacyComponentId;
+        if (!isset($question['publishedTo']) || !is_array($question['publishedTo'])) {
+            $question['publishedTo'] = ($question['status'] ?? 'draft') === 'published' ? [$componentType] : [];
+        } else {
+            $question['publishedTo'] = normalizeQuestionPublishTargets($question['publishedTo']);
+        }
+        if ($before !== [$question['courseId'], $question['publishedTo'], $question['legacyComponentId']]) $migrated++;
+    }
+    unset($question);
+    $data['migrations']['sharedQuestionPoolsV1'] = ['completedAt' => date('c'), 'migratedQuestions' => $migrated, 'unresolvedQuestions' => $unresolved];
+    return ['migrated' => $migrated, 'unresolved' => $unresolved];
+}
+function uploadedPdfQuestionImport(int $maximumBytes = PDF_IMPORT_MAX_BYTES, string $provider = 'Gemini'): array {
+    $upload = $_FILES['pdf'] ?? null;
+    if (!is_array($upload) || ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) respond(['error' => 'Choose a PDF file to continue.'], 422);
+    $size = (int)($upload['size'] ?? 0); $path = (string)($upload['tmp_name'] ?? '');
+    if ($size < 5 || $size > $maximumBytes) respond(['error' => $provider . ' PDF imports must be no larger than ' . round($maximumBytes / 1024 / 1024) . ' MB. Split the document into smaller sections and try again.'], 422);
+    if ($path === '' || !is_uploaded_file($path)) respond(['error' => 'The PDF upload could not be verified. Please choose the file again.'], 422);
+    $header = file_get_contents($path, false, null, 0, 8);
+    $mime = function_exists('mime_content_type') ? (string)@mime_content_type($path) : '';
+    $filename = (string)($upload['name'] ?? 'questions.pdf');
+    if (!str_starts_with((string)$header, '%PDF-') || ($mime !== '' && !in_array($mime, ['application/pdf', 'application/x-pdf', 'application/octet-stream'], true))) respond(['error' => 'Upload a valid PDF document, not a renamed file.'], 422);
+    return ['path' => $path, 'filename' => basename($filename), 'size' => $size];
+}
+function strictQuestionImportSource(): array {
+    $pasted = trim((string)($_POST['text'] ?? ''));
+    $upload = $_FILES['source'] ?? null;
+    $hasFile = is_array($upload) && ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+    if ($pasted !== '' && $hasFile) respond(['error' => 'Paste the strict-format text or choose one file, not both.'], 422);
+    if ($pasted !== '') {
+        if (strlen($pasted) > STRICT_IMPORT_MAX_BYTES) respond(['error' => 'Pasted text is too large. Split it into smaller question sets and try again.'], 422);
+        return ['filename' => 'Pasted strict-format text', 'text' => $pasted];
+    }
+    if (!$hasFile || !is_array($upload) || ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) respond(['error' => 'Paste strict-format text or choose a .txt or .docx file to continue.'], 422);
+    $path = (string)($upload['tmp_name'] ?? ''); $size = (int)($upload['size'] ?? 0); $filename = basename((string)($upload['name'] ?? 'questions.txt'));
+    if ($size < 2 || $size > STRICT_IMPORT_MAX_BYTES) respond(['error' => 'Strict-format files must be no larger than 2 MB. Split the questions into smaller files and try again.'], 422);
+    if ($path === '' || !is_uploaded_file($path)) respond(['error' => 'The uploaded file could not be verified. Please choose it again.'], 422);
+    $extension = strtolower((string)pathinfo($filename, PATHINFO_EXTENSION));
+    if ($extension === 'txt') {
+        $text = file_get_contents($path);
+        if ($text === false) respond(['error' => 'The text file could not be read.'], 422);
+    } elseif ($extension === 'docx') {
+        if (!class_exists('ZipArchive')) respond(['error' => 'Word import requires the PHP ZIP extension, which is not enabled on this server.'], 503);
+        $archive = new ZipArchive();
+        if ($archive->open($path) !== true) respond(['error' => 'The Word file could not be read. Upload a valid .docx document.'], 422);
+        $documentXml = $archive->getFromName('word/document.xml'); $archive->close();
+        if ($documentXml === false) respond(['error' => 'The Word file has no readable document content. Upload a valid .docx document.'], 422);
+        $documentXml = preg_replace('/<w:tab[^>]*\/>/i', "\t", $documentXml) ?? $documentXml;
+        $documentXml = preg_replace('/<\/w:p>/i', "\n", $documentXml) ?? $documentXml;
+        $text = html_entity_decode(strip_tags($documentXml), ENT_QUOTES | ENT_XML1, 'UTF-8');
+    } else {
+        respond(['error' => 'Use a plain-text (.txt) or Word (.docx) file for strict-format import.'], 422);
+    }
+    $text = trim((string)$text);
+    if ($text === '') respond(['error' => 'The uploaded file contains no readable text.'], 422);
+    return ['filename' => $filename, 'text' => $text];
+}
+function parseStrictQuestionText(string $text): array {
+    $lines = preg_split('/\R/u', str_replace("\r\n", "\n", $text)) ?: [];
+    $items = []; $current = null; $questionNumber = 0;
+    $finish = static function (?array $question, int $number) use (&$items): void {
+        if ($question === null) return;
+        if (!$question['answerSeen']) respond(['error' => 'No ANS: line found for question ' . $number . '.'], 422);
+        if (count($question['options']) < 2) respond(['error' => 'Question ' . $number . ' needs at least two options (for example, A) and B).'], 422);
+        $indexes = [];
+        foreach ($question['answers'] as $letter) {
+            if (!array_key_exists($letter, $question['options'])) respond(['error' => 'Question ' . $number . ' marks ' . $letter . ' as correct, but no ' . $letter . ') option was found.'], 422);
+            $indexes[] = array_search($letter, array_keys($question['options']), true);
+        }
+        $items[] = ['questionText' => trim($question['text']), 'options' => array_values($question['options']), 'correctOptionIndexes' => $indexes, 'confidence' => 'high'];
+    };
+    foreach ($lines as $lineNumber => $line) {
+        $line = trim(preg_replace('/^\xEF\xBB\xBF/', '', (string)$line) ?? (string)$line);
+        if ($line === '') continue;
+        if (preg_match('/^Q:\s*$/iu', $line)) respond(['error' => 'Question ' . ($questionNumber + 1) . ' has an empty Q: line.'], 422);
+        if (preg_match('/^Q:\s*(.+)$/iu', $line, $match)) {
+            $finish($current, $questionNumber); $questionNumber++;
+            if ($questionNumber > STRICT_IMPORT_MAX_QUESTIONS) respond(['error' => 'Strict-format import supports at most ' . STRICT_IMPORT_MAX_QUESTIONS . ' questions per import.'], 422);
+            $current = ['text' => trim($match[1]), 'options' => [], 'answers' => [], 'answerSeen' => false];
+            continue;
+        }
+        if ($current === null) respond(['error' => 'Expected Q: to start question 1 (line ' . ($lineNumber + 1) . ').'], 422);
+        if (preg_match('/^ANS:\s*(.*)$/iu', $line, $match)) {
+            if ($current['answerSeen']) respond(['error' => 'Question ' . $questionNumber . ' has more than one ANS: line.'], 422);
+            $letters = preg_split('/\s*,\s*/', strtoupper(trim($match[1]))) ?: [];
+            if (!$letters || array_filter($letters, fn($letter) => !preg_match('/^[A-J]$/', $letter))) respond(['error' => 'Question ' . $questionNumber . ' has an invalid ANS: line. Use letters such as ANS: B or ANS: B,D.'], 422);
+            $current['answers'] = array_values(array_unique($letters)); $current['answerSeen'] = true;
+            continue;
+        }
+        if (preg_match('/^([A-J])\)\s*(.+)$/iu', $line, $match)) {
+            if ($current['answerSeen']) respond(['error' => 'Question ' . $questionNumber . ' has an option after its ANS: line. Put ANS: after all options.'], 422);
+            $letter = strtoupper($match[1]);
+            if (array_key_exists($letter, $current['options'])) respond(['error' => 'Question ' . $questionNumber . ' repeats option ' . $letter . ').'], 422);
+            $current['options'][$letter] = trim($match[2]);
+            continue;
+        }
+        if ($current['answerSeen']) respond(['error' => 'Unexpected content after ANS: for question ' . $questionNumber . ' (line ' . ($lineNumber + 1) . ').'], 422);
+        $current['text'] .= ' ' . $line;
+    }
+    $finish($current, $questionNumber);
+    if (!$items) respond(['error' => 'No questions were found. Start each question with Q:.'], 422);
+    return $items;
+}
+function decodeQuestionImportJson(string $content): mixed {
+    $content = trim($content);
+    $content = preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $content) ?? $content;
+    $decoded = json_decode($content, true);
+    if (json_last_error() === JSON_ERROR_NONE) return $decoded;
+    $start = strpos($content, '{'); $end = strrpos($content, '}');
+    if ($start !== false && $end !== false && $end > $start) {
+        $decoded = json_decode(substr($content, $start, $end - $start + 1), true);
+        if (json_last_error() === JSON_ERROR_NONE) return $decoded;
+    }
+    return null;
+}
+function questionTextFingerprint(string $text): string {
+    $normalized = preg_replace('/\s+/u', ' ', trim($text)) ?? trim($text);
+    return hash('sha256', strtolower($normalized));
+}
+function requireUniqueQuestionBatch(array $questions, array $data, string $courseId, string $ignoreQuestionId = '', bool $skipExisting = false): array {
+    $seen = [];
+    foreach ($questions as $index => $question) {
+        $text = (string)($question['text'] ?? $question['questionText'] ?? '');
+        $fingerprint = questionTextFingerprint($text);
+        if (isset($seen[$fingerprint])) respond(['error' => 'Question ' . ($index + 1) . ' repeats question ' . ($seen[$fingerprint] + 1) . '. Each imported question must be unique. Review the source PDF and try again.'], 422);
+        $seen[$fingerprint] = $index;
+    }
+    $existing = [];
+    foreach ($data['questions'] as $question) if (($question['courseId'] ?? '') === $courseId && (string)($question['id'] ?? '') !== $ignoreQuestionId) $existing[questionTextFingerprint((string)($question['text'] ?? ''))] = true;
+    $existingIndexes = [];
+    foreach ($seen as $fingerprint => $index) if (isset($existing[$fingerprint])) {
+        if (!$skipExisting) respond(['error' => 'Question ' . ($index + 1) . ' already exists in this shared course question bank. Remove duplicate Drafts or edit the question before importing.'], 422);
+        $existingIndexes[] = $index;
+    }
+    return $existingIndexes;
+}
+function requireUniqueParsedQuestions(array $items, string $provider): void {
+    $seen = [];
+    foreach ($items as $index => $item) {
+        $fingerprint = questionTextFingerprint((string)($item['questionText'] ?? ''));
+        if (isset($seen[$fingerprint])) respond(['error' => $provider . ' repeated question ' . ($seen[$fingerprint] + 1) . ' as question ' . ($index + 1) . '. Nothing was imported. Try again or use Strict-format import so every question can be read exactly.'], 422);
+        $seen[$fingerprint] = $index;
+    }
+}
+function parsePdfQuestionsWithGemini(string $text, int $maximumQuestions = PDF_IMPORT_MAX_QUESTIONS): array {
+    $apiKey = trim((string)getenv('GEMINI_API_KEY'));
+    if ($apiKey === '') respond(['error' => 'Gemini PDF import is not configured yet. Add GEMINI_API_KEY to the server .env file, then try again.'], 503);
+    if (!function_exists('curl_init')) respond(['error' => 'Gemini PDF import requires the PHP cURL extension, which is not enabled on this server.'], 503);
+    $instruction = 'Extract every complete assessment question in this source section, up to ' . $maximumQuestions . '. Page markers preserve the source order; read every marked page before producing the next distinct question. Never invent a correct answer. Return only strict JSON: {"questions":[{"questionText":"...","options":["..."],"correctOptionIndexes":[0],"confidence":"high"}],"truncated":false}. Each question needs 2 to 10 options and zero-based answer indexes. Mark confidence low whenever the answer key is missing, ambiguous, or uncertain. Every returned item must be a different question from the source, in source order. Never repeat a question, option set, or answer merely to reach a count; return fewer questions instead. Do not stop at 10 questions if more distinct questions are present in this source section. If more than ' . $maximumQuestions . ' complete questions are present, set truncated true and do not return a partial list. Preserve wording and options faithfully.\n\nPDF TEXT:\n' . $text;
+    // Bulk extraction needs output room; this model supports the low thinking level.
+    $payload = ['model' => (string)(getenv('CBT_GEMINI_MODEL') ?: 'gemini-3.8-flash'), 'input' => $instruction, 'generation_config' => ['temperature' => 0, 'thinking_level' => 'low', 'max_output_tokens' => 24000]];
+    $raw = false; $error = ''; $status = 0; $response = null;
+    foreach ([0, 400000, 1200000] as $delay) {
+        if ($delay) usleep($delay);
+        $curl = curl_init('https://generativelanguage.googleapis.com/v1beta/interactions');
+        curl_setopt_array($curl, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 15, CURLOPT_TIMEOUT => 180, CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'x-goog-api-key: ' . $apiKey], CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)]);
+        $raw = curl_exec($curl); $error = curl_error($curl); $status = (int)curl_getinfo($curl, CURLINFO_RESPONSE_CODE); curl_close($curl);
+        $response = json_decode((string)$raw, true);
+        if ($raw !== false && $error === '' && $status >= 200 && $status < 300 && is_array($response)) break;
+        if (!in_array($status, [0, 429, 500, 502, 503, 504], true)) break;
+    }
+    if ($raw === false || $error !== '') { error_log('CACSA CBT Gemini PDF import failed: ' . $error); respond(['error' => 'Gemini could not be reached after automatic retries. Check your connection and try again.'], 502); }
+    if ($status < 200 || $status >= 300 || !is_array($response)) {
+        $providerMessage = trim((string)($response['error']['message'] ?? ''));
+        error_log('CACSA CBT Gemini PDF import response failed: HTTP ' . $status . ($providerMessage !== '' ? ' --- ' . substr($providerMessage, 0, 300) : ''));
+        if ($status === 429) respond(['error' => 'Gemini is temporarily rate-limited. The importer retried automatically; wait a moment and try again, or use OpenRouter PDF import.'], 429);
+        if (in_array($status, [500, 502, 503, 504], true)) respond(['error' => 'Gemini is temporarily unavailable. The importer retried automatically; please try again in a moment, or use OpenRouter PDF import.'], 503);
+        respond(['error' => $providerMessage !== '' ? 'Gemini rejected this request: ' . $providerMessage : 'Gemini could not process this PDF.'], 502);
+    }
+    if (($response['status'] ?? 'completed') !== 'completed') respond(['error' => 'Gemini did not finish reading this PDF. Try again, or split the document into smaller sections.'], 422);
+    $content = '';
+    foreach (($response['steps'] ?? []) as $step) if (($step['type'] ?? '') === 'model_output') foreach (($step['content'] ?? []) as $part) if (($part['type'] ?? '') === 'text') $content .= (string)($part['text'] ?? '');
+    $decoded = decodeQuestionImportJson($content);
+    if (is_array($decoded) && !array_is_list($decoded) && !empty($decoded['truncated'])) respond(['error' => 'This PDF section contains more than ' . $maximumQuestions . ' questions. Split it by topic or chapter, keeping each section and its answer key together, then import each section separately.'], 422);
+    $rows = is_array($decoded) && array_is_list($decoded) ? $decoded : ($decoded['questions'] ?? null);
+    if (!is_array($rows) || !array_is_list($rows) || !$rows || count($rows) > $maximumQuestions) respond(['error' => 'Gemini could not identify between 1 and ' . $maximumQuestions . ' reviewable questions in this PDF section.'], 422);
+    $items = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) continue;
+        $options = is_array($row['options'] ?? null) ? array_values(array_map(fn($option) => trim((string)$option), $row['options'])) : [];
+        if (count($options) > 10) $options = array_slice($options, 0, 10);
+        while (count($options) < 2) $options[] = '';
+        $correct = is_array($row['correctOptionIndexes'] ?? null) ? array_values(array_unique(array_filter(array_map('intval', $row['correctOptionIndexes']), fn($index) => $index >= 0 && $index < count($options)))) : [];
+        $confidence = ($row['confidence'] ?? '') === 'high' && trim((string)($row['questionText'] ?? '')) !== '' && !empty($correct) ? 'high' : 'low';
+        $items[] = ['questionText' => trim((string)($row['questionText'] ?? '')), 'options' => $options, 'correctOptionIndexes' => $correct, 'confidence' => $confidence];
+    }
+    if (!$items) respond(['error' => 'Gemini did not return usable question entries. Try a clearer PDF section.'], 422);
+    requireUniqueParsedQuestions($items, 'Gemini');
+    usort($items, fn($a, $b) => ($a['confidence'] === 'low' ? 0 : 1) <=> ($b['confidence'] === 'low' ? 0 : 1));
+    return $items;
+}
+function parsePdfQuestionsWithOpenRouter(string $text, int $maximumQuestions = OPENROUTER_PDF_IMPORT_MAX_QUESTIONS): array {
+    $apiKey = trim((string)getenv('OPENROUTER_API_KEY'));
+    if ($apiKey === '') respond(['error' => 'OpenRouter PDF import is not configured yet. Add OPENROUTER_API_KEY to the server .env file, then try again.'], 503);
+    if (!function_exists('curl_init')) respond(['error' => 'OpenRouter PDF import requires the PHP cURL extension, which is not enabled on this server.'], 503);
+    $maximum = $maximumQuestions;
+    $instruction = 'Extract every complete assessment question in this source section, up to ' . $maximum . '. Page markers preserve the source order; read every marked page before producing the next distinct question. Never invent a correct answer. Return only strict JSON: {"questions":[{"questionText":"...","options":["..."],"correctOptionIndexes":[0],"confidence":"high"}],"truncated":false}. Each question needs 2 to 10 options and zero-based answer indexes. Mark confidence low whenever the answer key is missing, ambiguous, or uncertain. Every returned item must be a different question from the source, in source order. Never repeat a question, option set, or answer merely to reach a count; return fewer questions instead. Do not stop at 10 questions if more distinct questions are present in this source section. If more than ' . $maximum . ' complete questions are present, set truncated true and do not return a partial list. Preserve question wording and options faithfully.\n\nPDF TEXT:\n' . $text;
+    $questionSchema = ['type' => 'object', 'properties' => ['questions' => ['type' => 'array', 'minItems' => 0, 'maxItems' => $maximum, 'items' => ['type' => 'object', 'properties' => ['questionText' => ['type' => 'string'], 'options' => ['type' => 'array', 'minItems' => 2, 'maxItems' => 10, 'items' => ['type' => 'string']], 'correctOptionIndexes' => ['type' => 'array', 'items' => ['type' => 'integer', 'minimum' => 0, 'maximum' => 9]], 'confidence' => ['type' => 'string', 'enum' => ['high', 'low']]], 'required' => ['questionText', 'options', 'correctOptionIndexes', 'confidence'], 'additionalProperties' => false]], 'truncated' => ['type' => 'boolean']], 'required' => ['questions', 'truncated'], 'additionalProperties' => false];
+    $payload = ['model' => (string)(getenv('CBT_OPENROUTER_MODEL') ?: 'openrouter/free'), 'messages' => [['role' => 'system', 'content' => 'You are a precise assessment-question extractor. Follow the requested JSON schema exactly and never add prose.'], ['role' => 'user', 'content' => $instruction]], 'response_format' => ['type' => 'json_schema', 'json_schema' => ['name' => 'assessment_questions', 'strict' => true, 'schema' => $questionSchema]], 'provider' => ['require_parameters' => true, 'allow_fallbacks' => true], 'temperature' => 0, 'max_tokens' => 12000];
+    $raw = false; $error = ''; $status = 0; $response = null;
+    foreach ([0, 400000, 1200000] as $delay) {
+        if ($delay) usleep($delay);
+        $curl = curl_init('https://openrouter.ai/api/v1/chat/completions');
+        curl_setopt_array($curl, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4, CURLOPT_CONNECTTIMEOUT => 20, CURLOPT_TIMEOUT => 180, CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . $apiKey, 'X-Title: CACSA LAUTECH CBT'], CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)]);
+        $raw = curl_exec($curl); $error = curl_error($curl); $status = (int)curl_getinfo($curl, CURLINFO_RESPONSE_CODE); curl_close($curl);
+        $response = json_decode((string)$raw, true);
+        if ($raw !== false && $error === '' && $status >= 200 && $status < 300 && is_array($response)) break;
+        if (!in_array($status, [0, 408, 429, 500, 502, 503, 504], true)) break;
+    }
+    if ($raw === false || $error !== '') { error_log('CACSA CBT OpenRouter PDF import connection failed after retries: HTTP ' . $status . ' --- ' . $error); respond(['error' => 'OpenRouter could not be reached after automatic retries. Check this server’s outbound HTTPS connection, then try again.'], 502); }
+    if ($status < 200 || $status >= 300 || !is_array($response)) {
+        $providerMessage = trim((string)($response['error']['message'] ?? ''));
+        error_log('CACSA CBT OpenRouter PDF import response failed: HTTP ' . $status . ($providerMessage !== '' ? ' --- ' . substr($providerMessage, 0, 300) : ''));
+        if ($status === 401) respond(['error' => 'OpenRouter rejected the configured API key. Update OPENROUTER_API_KEY and try again.'], 503);
+        if ($status === 403) respond(['error' => 'OpenRouter denied this request. Check the API key account and its access settings.'], 503);
+        if ($status === 429) respond(['error' => 'OpenRouter is temporarily rate-limited. Wait a moment, then try again.'], 429);
+        respond(['error' => $providerMessage !== '' ? 'OpenRouter rejected this request: ' . $providerMessage : 'OpenRouter could not process this PDF. Please try again or use a smaller section.'], 502);
+    }
+    $content = $response['choices'][0]['message']['content'] ?? '';
+    if (is_array($content)) $content = implode("\n", array_map(fn($part) => is_array($part) ? (string)($part['text'] ?? '') : (string)$part, $content));
+    $decoded = decodeQuestionImportJson((string)$content);
+    if (is_array($decoded) && !array_is_list($decoded) && !empty($decoded['truncated'])) respond(['error' => 'This PDF contains more than ' . $maximum . ' questions. Split it by topic or chapter, keeping each section and its answer key together, then import each section separately.'], 422);
+    $rows = is_array($decoded) && array_is_list($decoded) ? $decoded : ($decoded['questions'] ?? null);
+    if (!is_array($rows) || !array_is_list($rows) || !$rows || count($rows) > $maximum) respond(['error' => 'OpenRouter could not identify between 1 and ' . $maximum . ' reviewable questions in this PDF.'], 422);
+    $items = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) continue;
+        $options = is_array($row['options'] ?? null) ? array_values(array_map(fn($option) => trim((string)$option), $row['options'])) : [];
+        if (count($options) > 10) $options = array_slice($options, 0, 10);
+        while (count($options) < 2) $options[] = '';
+        $correct = is_array($row['correctOptionIndexes'] ?? null) ? array_values(array_unique(array_filter(array_map('intval', $row['correctOptionIndexes']), fn($index) => $index >= 0 && $index < count($options)))) : [];
+        $confidence = ($row['confidence'] ?? '') === 'high' && trim((string)($row['questionText'] ?? '')) !== '' && !empty($correct) ? 'high' : 'low';
+        $items[] = ['questionText' => trim((string)($row['questionText'] ?? '')), 'options' => $options, 'correctOptionIndexes' => $correct, 'confidence' => $confidence];
+    }
+    if (!$items) respond(['error' => 'OpenRouter did not return usable question entries. Try a clearer PDF section.'], 422);
+    requireUniqueParsedQuestions($items, 'OpenRouter');
+    usort($items, fn($a, $b) => ($a['confidence'] === 'low' ? 0 : 1) <=> ($b['confidence'] === 'low' ? 0 : 1));
+    return $items;
+}
+function pdfExtractionSections(array $pages, int $pagesPerSection = 2): array {
+    $sections = []; $buffer = [];
+    foreach ($pages as $index => $content) {
+        $buffer[] = "--- PDF PAGE " . ($index + 1) . " ---\n" . $content;
+        if (count($buffer) >= $pagesPerSection) { $sections[] = implode("\n\n", $buffer); $buffer = []; }
+    }
+    if ($buffer) $sections[] = implode("\n\n", $buffer);
+    return $sections;
+}
+function extractPdfQuestionCandidates(string $provider = 'gemini'): array {
+    @set_time_limit(300);
+    $openRouter = $provider === 'openrouter';
+    $maximumBytes = $openRouter ? OPENROUTER_PDF_IMPORT_MAX_BYTES : PDF_IMPORT_MAX_BYTES;
+    $maximumPages = $openRouter ? OPENROUTER_PDF_IMPORT_MAX_PAGES : PDF_IMPORT_MAX_PAGES;
+    $maximumTextLength = $openRouter ? OPENROUTER_PDF_IMPORT_MAX_TEXT_LENGTH : PDF_IMPORT_MAX_TEXT_LENGTH;
+    $maximumQuestions = $openRouter ? OPENROUTER_PDF_IMPORT_MAX_QUESTIONS : PDF_IMPORT_MAX_QUESTIONS;
+    $providerName = $openRouter ? 'OpenRouter' : 'Gemini';
+    $upload = uploadedPdfQuestionImport($maximumBytes, $providerName);
+    if (!class_exists('Smalot\\PdfParser\\Parser')) respond(['error' => 'PDF import is unavailable because the PDF parser is not installed.'], 503);
+    try {
+        $parser = new \Smalot\PdfParser\Parser(); $document = $parser->parseFile($upload['path']); $pages = $document->getPages();
+        if (count($pages) > $maximumPages) respond(['error' => 'This PDF has more than ' . $maximumPages . ' pages. Split it by topic or chapter, keeping its questions and answer key together, then import each section separately.'], 422);
+        $pageText = [];
+        foreach ($pages as $index => $page) {
+            $content = trim((string)$page->getText());
+            if ($content !== '') $pageText[] = $content;
+        }
+    } catch (Throwable $error) {
+        error_log('CACSA CBT PDF parsing failed: ' . $error->getMessage()); respond(['error' => 'This PDF could not be read. Upload a text-based PDF; scanned image-only PDFs need OCR and are not supported yet.'], 422);
+    }
+    $text = trim(implode("\n\n", $pageText));
+    if ($text === '') respond(['error' => 'This PDF has no extractable text. Upload a text-based PDF; scanned image-only PDFs are not supported yet.'], 422);
+    if (textLength($text) > $maximumTextLength) respond(['error' => 'This PDF contains too much text for one reliable import. Split it into smaller sections by topic or chapter and try again.'], 422);
+    $items = [];
+    foreach (pdfExtractionSections($pageText) as $section) {
+        $remaining = $maximumQuestions - count($items);
+        if ($remaining <= 0) break;
+        $sectionLimit = min(20, $remaining);
+        $sectionItems = $openRouter ? parsePdfQuestionsWithOpenRouter($section, $sectionLimit) : parsePdfQuestionsWithGemini($section, $sectionLimit);
+        array_push($items, ...$sectionItems);
+    }
+    if (count($items) > $maximumQuestions) respond(['error' => 'This PDF contains more than ' . $maximumQuestions . ' questions. Split it by topic or chapter, keeping each section and its answer key together, then import each section separately.'], 422);
+    requireUniqueParsedQuestions($items, $providerName);
+    usort($items, fn($a, $b) => ($a['confidence'] === 'low' ? 0 : 1) <=> ($b['confidence'] === 'low' ? 0 : 1));
+    return ['filename' => $upload['filename'], 'pages' => count($pages), 'items' => $items, 'limits' => ['pages' => $maximumPages, 'questions' => $maximumQuestions, 'bytes' => $maximumBytes]];
 }
 function backupSummary(array $payload): array {
     return ['students' => count($payload['students']), 'courses' => count($payload['courses']), 'components' => count($payload['exams']), 'submissions' => count($payload['results']), 'examSessions' => count($payload['sessions']), 'auditEvents' => count($payload['auditEvents'])];
@@ -536,6 +883,12 @@ function enforceRateLimit(array &$data, string $scope, int $maximum, int $window
     saveData($data);
     return $key;
 }
+function enforceSystemRateLimit(array &$data, string $scope, int $maximum, int $windowSeconds, string $label = 'PDF-import'): void {
+    $now = time(); $data['rateLimits'] ??= []; $data['rateLimits'] = array_filter($data['rateLimits'], fn($item) => is_array($item) && (int)($item['resetAt'] ?? 0) > $now);
+    $key = hash('sha256', $scope . '|system'); $record = $data['rateLimits'][$key] ?? ['count' => 0, 'resetAt' => $now + $windowSeconds];
+    if ((int)$record['count'] >= $maximum) { saveData($data); respond(['error' => 'The daily ' . $label . ' allowance has been reached. Please try again tomorrow.'], 429); }
+    $record['count'] = (int)$record['count'] + 1; $data['rateLimits'][$key] = $record; saveData($data);
+}
 function enforceGeneralApiRateLimit(array &$data): void {
     $now = time(); $windowSeconds = 60; $maximum = max(60, min(600, (int)(getenv('CBT_API_RATE_LIMIT_PER_MINUTE') ?: 240)));
     $key = hash('sha256', 'general-api|' . clientFingerprint());
@@ -549,7 +902,7 @@ function requiredPermission(): ?string {
     $action = (string)($_GET['action'] ?? '');
     return match ($action) {
         'students', 'students-bulk', 'exam-password', 'student-results', 'student-results-csv' => 'students',
-        'exams', 'courses', 'course-components' => 'exams', 'questions', 'questions-bulk' => 'questions', 'results', 'result-review', 'calculate-student-result' => 'results',
+        'exams', 'courses', 'course-components' => 'exams', 'questions', 'questions-bulk', 'questions-bulk-delete', 'questions-publish-target', 'questions-unpublish-target', 'questions-deduplicate', 'strict-question-parse', 'strict-question-import', 'pdf-question-parse', 'pdf-question-import', 'openrouter-pdf-question-parse', 'openrouter-pdf-question-import' => 'questions', 'results', 'result-review', 'calculate-student-result' => 'results',
         'audit-monitor', 'audit-events', 'exam-session-unlock' => 'audit', 'newsletter-subscribers', 'newsletters' => 'newsletter', 'settings' => 'settings', 'roles', 'admin-users', 'admin-approvals' => 'roles',
         'academic-sessions', 'semesters' => 'settings', 'backups' => 'roles',
         'dashboard', 'dashboard-outcomes' => 'overview', default => null
@@ -799,7 +1152,6 @@ function validateStudent(array $input, array $data, ?string $currentId = null): 
     $department = requireText($input['department'] ?? null, 'Department');
     $phoneNumber = requireText($input['phoneNumber'] ?? null, 'Phone number', 32);
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) respond(['error' => 'Enter a valid email address.'], 422);
-    if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9/_-]{3,31}$/', $matric)) respond(['error' => 'Matric number may only contain letters, numbers, slash, underscore, and hyphen.'], 422);
     $phoneDigits = preg_replace('/\D+/', '', $phoneNumber);
     if (!preg_match('/^[0-9+()\-\s.]+$/', $phoneNumber) || strlen((string)$phoneDigits) < 7 || strlen((string)$phoneDigits) > 16) respond(['error' => 'Enter a valid phone number.'], 422);
     foreach ($data['students'] as $student) {
@@ -903,8 +1255,14 @@ function validateCourse(array $input, array $data, ?string $currentId = null): a
     return ['code' => $code, 'title' => $title, 'description' => trim((string)($input['description'] ?? '')), 'category' => $category, 'courseUnit' => $unit, 'sessionId' => $sessionId, 'semesterId' => $semesterId, 'testMaxMark' => $testMax, 'examMaxMark' => $examMax, 'test' => componentValues($input, 'test', $testMax), 'exam' => componentValues($input, 'exam', $examMax)];
 }
 function validateQuestion(array $input, array $data): array {
-    $examId = (string)($input['examId'] ?? '');
-    if (!findBy($data['exams'], 'id', $examId)) respond(['error' => 'Choose an existing assessment.'], 422);
+    $courseId = trim((string)($input['courseId'] ?? ''));
+    // Accept a legacy component id only while transitioning old clients. New forms
+    // submit courseId and every new question begins life as an unpublished Draft.
+    if ($courseId === '' && !empty($input['examId'])) {
+        $legacyComponent = findBy($data['exams'], 'id', (string)$input['examId']);
+        $courseId = (string)($legacyComponent['courseId'] ?? '');
+    }
+    if (!$courseId || !findBy($data['courses'], 'id', $courseId)) respond(['error' => 'Choose an existing course question bank.'], 422);
     $question = requireText($input['text'] ?? null, 'Question text', 5000);
     $options = $input['options'] ?? null;
     if (!is_array($options) || count($options) < 2 || count($options) > 10 || !array_is_list($options)) respond(['error' => 'Provide between 2 and 10 options.'], 422);
@@ -916,11 +1274,9 @@ function validateQuestion(array $input, array $data): array {
     foreach ($correct as $index) if (filter_var($index, FILTER_VALIDATE_INT) === false || (int)$index < 0 || (int)$index >= count($options)) respond(['error' => 'A correct option index is outside the options provided.'], 422);
     $correct = array_values(array_unique(array_map('intval', $correct)));
     if ($type === 'single' && count($correct) !== 1) respond(['error' => 'A single-answer question needs exactly one correct option.'], 422);
-    $status = (string)($input['status'] ?? 'draft');
-    if (!in_array($status, ['draft', 'published'], true)) respond(['error' => 'Question status must be draft or published.'], 422);
     $topic = trim((string)($input['topic'] ?? '')); $difficulty = trim((string)($input['difficulty'] ?? 'medium'));
     if (textLength($topic) > 120 || preg_match('/[\x00-\x1F\x7F]/u', $topic) || !in_array($difficulty, ['easy', 'medium', 'hard'], true)) respond(['error' => 'Question topic or difficulty is invalid.'], 422);
-    return ['examId' => $examId, 'text' => $question, 'options' => $options, 'correctOptions' => $correct, 'type' => $type, 'topic' => $topic, 'difficulty' => $difficulty, 'status' => $status];
+    return ['courseId' => $courseId, 'text' => $question, 'options' => $options, 'correctOptions' => $correct, 'type' => $type, 'topic' => $topic, 'difficulty' => $difficulty];
 }
 function listItems(array $items, array $searchFields, array $sortFields): array {
     $search = trim((string)($_GET['search'] ?? $_GET['q'] ?? ''));
@@ -1034,7 +1390,8 @@ function recalculateResults(array &$data): void {
     unset($result);
 }
 function completeSession(array &$data, array $session, bool $auto): array {
-    $questions = $session['questions'] ?? array_values(array_filter($data['questions'], fn($question) => $question['examId'] === $session['examId'] && ($question['status'] ?? 'published') === 'published'));
+    $component = findBy($data['exams'], 'id', (string)($session['examId'] ?? ''));
+    $questions = $session['questions'] ?? ($component ? questionsPublishedForComponent($data, $component) : []);
     $correct = 0; $review = [];
     foreach ($questions as $question) {
         $displayedAnswers = $session['answers'][$question['id']] ?? [];
@@ -1529,7 +1886,15 @@ if ($action === 'course-components' && in_array($method, ['PUT', 'DELETE'], true
         if (array_filter($data['results'], fn($result) => ($result['examId'] ?? '') === $componentId)) respond(['error' => 'This component has submitted results and cannot be deleted.'], 409);
         $remainingMax = $kind === 'test' ? (float)($course['examMaxMark'] ?? 0) : (float)($course['testMaxMark'] ?? 0);
         if ($remainingMax <= 0) respond(['error' => 'A course must retain at least one scored component.'], 422);
-        $data['questions'] = array_values(array_filter($data['questions'], fn($question) => ($question['examId'] ?? '') !== $componentId));
+        // Questions belong to the course pool. Removing one component only removes
+        // that publish target; it must never erase questions still usable elsewhere.
+        foreach ($data['questions'] as &$question) {
+            if (($question['courseId'] ?? '') !== $course['id']) continue;
+            $targets = normalizeQuestionPublishTargets($question['publishedTo'] ?? []);
+            $question['publishedTo'] = array_values(array_filter($targets, fn($target) => $target !== $kind));
+            $question['status'] = $question['publishedTo'] ? 'published' : 'draft';
+        }
+        unset($question);
         $data['exams'] = array_values(array_filter($data['exams'], fn($exam) => ($exam['id'] ?? '') !== $componentId));
         if ($kind === 'test') $course['testMaxMark'] = 0; else $course['examMaxMark'] = 0;
         replaceBy($data['courses'], 'id', $course['id'], $course);
@@ -1544,12 +1909,39 @@ if ($action === 'course-components' && in_array($method, ['PUT', 'DELETE'], true
 
 if ($action === 'courses' && $method === 'GET') {
     auth(true); $items = $data['courses'];
+    $questionCounts = []; $componentQuestionCounts = []; $sharedQuestionCounts = [];
+    foreach ($data['questions'] as $question) {
+        $courseId = (string)($question['courseId'] ?? '');
+        if ($courseId === '') continue;
+        $questionCounts[$courseId] = ($questionCounts[$courseId] ?? 0) + 1;
+        $targets = normalizeQuestionPublishTargets($question['publishedTo'] ?? []);
+        foreach ($targets as $target) $componentQuestionCounts[$courseId][$target] = ($componentQuestionCounts[$courseId][$target] ?? 0) + 1;
+        if (count($targets) === 2) $sharedQuestionCounts[$courseId] = ($sharedQuestionCounts[$courseId] ?? 0) + 1;
+    }
     foreach ($items as &$course) {
         $session = findBy($data['academicSessions'], 'id', (string)($course['sessionId'] ?? '')); $semester = findBy($data['semesters'], 'id', (string)($course['semesterId'] ?? ''));
         $course['sessionLabel'] = $session['label'] ?? ''; $course['semesterLabel'] = $semester['label'] ?? '';
-        $course['components'] = array_values(array_map('publicExam', array_filter($data['exams'], fn($exam) => ($exam['courseId'] ?? '') === ($course['id'] ?? ''))));
+        $courseId = (string)($course['id'] ?? '');
+        $course['questionBankCount'] = (int)($questionCounts[$courseId] ?? 0);
+        $course['sharedQuestionCount'] = (int)($sharedQuestionCounts[$courseId] ?? 0);
+        $components = array_filter($data['exams'], fn($exam) => ($exam['courseId'] ?? '') === ($course['id'] ?? ''));
+        $course['components'] = array_values(array_map(function ($component) use ($courseId, $componentQuestionCounts) {
+            $component = publicExam($component);
+            $type = strtolower((string)($component['component'] ?? 'exam')) === 'test' ? 'test' : 'exam';
+            $component['questionBankCount'] = (int)($componentQuestionCounts[$courseId][$type] ?? 0);
+            return $component;
+        }, $components));
     }
-    unset($course); respond(listItems($items, ['code', 'title', 'sessionLabel', 'semesterLabel'], ['code', 'title', 'courseUnit']));
+    unset($course);
+    if (($_GET['missingQuestionBank'] ?? '') === 'true') {
+        $items = array_values(array_filter($items, function ($course) {
+            foreach (($course['components'] ?? []) as $component) {
+                if ((int)($component['questionCount'] ?? 0) <= 0 || (int)($component['questionBankCount'] ?? 0) === 0) return true;
+            }
+            return false;
+        }));
+    }
+    respond(listItems($items, ['code', 'title', 'sessionLabel', 'semesterLabel'], ['code', 'title', 'courseUnit']));
 }
 if ($action === 'courses' && in_array($method, ['POST', 'PUT', 'DELETE'], true)) {
     auth(true); $input = body(); $courseId = (string)($_GET['id'] ?? '');
@@ -1566,7 +1958,7 @@ if ($action === 'courses' && in_array($method, ['POST', 'PUT', 'DELETE'], true))
     if ($method === 'DELETE') {
         $components = array_values(array_filter($data['exams'], fn($exam) => ($exam['courseId'] ?? '') === $courseId));
         foreach ($components as $component) if (array_filter($data['results'], fn($result) => ($result['examId'] ?? '') === $component['id'])) respond(['error' => 'This course has result history and cannot be deleted.'], 409);
-        $componentIds = array_column($components, 'id'); $data['questions'] = array_values(array_filter($data['questions'], fn($question) => !in_array($question['examId'] ?? '', $componentIds, true))); $data['exams'] = array_values(array_filter($data['exams'], fn($exam) => ($exam['courseId'] ?? '') !== $courseId)); $data['courses'] = array_values(array_filter($data['courses'], fn($item) => ($item['id'] ?? '') !== $courseId)); auditEvent($data, 'admin', adminActorId(), 'course_deleted', 'course', $courseId, ['course' => $course['code']]); saveData($data); respond(['ok' => true]);
+        $data['questions'] = array_values(array_filter($data['questions'], fn($question) => ($question['courseId'] ?? '') !== $courseId)); $data['exams'] = array_values(array_filter($data['exams'], fn($exam) => ($exam['courseId'] ?? '') !== $courseId)); $data['courses'] = array_values(array_filter($data['courses'], fn($item) => ($item['id'] ?? '') !== $courseId)); auditEvent($data, 'admin', adminActorId(), 'course_deleted', 'course', $courseId, ['course' => $course['code']]); saveData($data); respond(['ok' => true]);
     }
     $input = array_merge($course, $input); ensureCoursePeriod($data, $input);
     $values = validateCourse($input, $data, $courseId); $course = array_merge($course, array_diff_key($values, ['test' => true, 'exam' => true])); replaceBy($data['courses'], 'id', $courseId, $course);
@@ -1583,7 +1975,7 @@ if ($action === 'exams' && $method === 'GET') {
     if (($_GET['active'] ?? '') === 'true') {
         $items = array_values(array_filter($items, fn($exam) => $exam['active']));
         foreach ($items as &$item) {
-            $publishedQuestions = array_values(array_filter($data['questions'], fn($question) => ($question['examId'] ?? '') === $item['id'] && ($question['status'] ?? 'published') === 'published'));
+            $publishedQuestions = questionsPublishedForComponent($data, $item);
             $item['availableQuestionCount'] = count($publishedQuestions);
             $item['questionMode'] = !$publishedQuestions ? 'Questions pending' : (array_filter($publishedQuestions, fn($question) => ($question['type'] ?? 'single') === 'multiple') ? 'Single & multiple choice' : 'Single choice');
         }
@@ -1672,21 +2064,187 @@ if ($action === 'exam-password' && $method === 'POST') {
     $data['passwords'] = array_values(array_filter($data['passwords'], fn($item) => !($item['studentId'] === $student['id'] && $item['examId'] === $exam['id']))); $data['passwords'][] = $record; clearExamLoginFailures($data, $student['matricNumber'], $exam['id']); auditEvent($data, 'admin', getenv('CBT_ADMIN_EMAIL') ?: DEV_ADMIN_EMAIL, 'exam_password_generated', 'exam_password', $record['id'], ['matricNumber' => $student['matricNumber'], 'course' => $exam['code']]); saveData($data); respond(['student' => $student, 'exam' => publicExam($exam), 'password' => $password]);
 }
 
-if ($action === 'questions' && $method === 'GET') { auth(true); $items = $data['questions']; if (!empty($_GET['examId'])) $items = array_values(array_filter($items, fn($item) => $item['examId'] === $_GET['examId'])); if (!empty($_GET['status'])) $items = array_values(array_filter($items, fn($item) => ($item['status'] ?? 'published') === $_GET['status'])); respond(listItems($items, ['text','topic','difficulty','status'], ['text','topic','difficulty','status'])); }
+if ($action === 'questions' && $method === 'GET') { auth(true); $items = $data['questions']; if (!empty($_GET['courseId'])) $items = array_values(array_filter($items, fn($item) => (string)($item['courseId'] ?? '') === (string)$_GET['courseId'])); elseif (!empty($_GET['examId'])) $items = array_values(array_filter($items, fn($item) => $item['examId'] === $_GET['examId'])); if (!empty($_GET['status'])) $items = array_values(array_filter($items, fn($item) => ($item['status'] ?? 'published') === $_GET['status'])); respond(listItems($items, ['text','topic','difficulty','status'], ['text','topic','difficulty','status'])); }
 if ($action === 'questions' && in_array($method, ['POST','PUT','DELETE'], true)) {
     auth(true); $questionId = $_GET['id'] ?? '';
-    if ($method === 'DELETE') { $existing = findBy($data['questions'], 'id', $questionId); if (!$existing) respond(['error' => 'Question not found.'], 404); $questionExam = findBy($data['exams'], 'id', $existing['examId']); $data['questions'] = array_values(array_filter($data['questions'], fn($item) => $item['id'] !== $questionId)); auditEvent($data, 'admin', getenv('CBT_ADMIN_EMAIL') ?: DEV_ADMIN_EMAIL, 'question_deleted', 'question', $questionId, ['examId' => $existing['examId'], 'course' => $questionExam['code'] ?? '', 'text' => substr($existing['text'], 0, 120)]); saveData($data); respond(['ok' => true]); }
+    if ($method === 'DELETE') { $existing = findBy($data['questions'], 'id', $questionId); if (!$existing) respond(['error' => 'Question not found.'], 404); $course = findBy($data['courses'], 'id', (string)($existing['courseId'] ?? '')); $data['questions'] = array_values(array_filter($data['questions'], fn($item) => $item['id'] !== $questionId)); auditEvent($data, 'admin', adminActorId(), 'question_deleted', 'question', $questionId, ['courseId' => $existing['courseId'] ?? '', 'course' => $course['code'] ?? '', 'text' => substr($existing['text'], 0, 120)]); saveData($data); respond(['ok' => true]); }
     $input = body();
-    if ($method === 'POST') { $question = ['id' => id()] + validateQuestion($input, $data); $questionExam = findBy($data['exams'], 'id', $question['examId']); $data['questions'][] = $question; auditEvent($data, 'admin', getenv('CBT_ADMIN_EMAIL') ?: DEV_ADMIN_EMAIL, 'question_added', 'question', $question['id'], ['examId' => $question['examId'], 'course' => $questionExam['code'] ?? '', 'text' => substr($question['text'], 0, 120)]); saveData($data); respond(['item' => $question], 201); }
+    if ($method === 'POST') { $question = ['id' => id(), 'legacyComponentId' => null, 'publishedTo' => [], 'status' => 'draft'] + validateQuestion($input, $data); requireUniqueQuestionBatch([$question], $data, (string)$question['courseId']); $course = findBy($data['courses'], 'id', $question['courseId']); $data['questions'][] = $question; auditEvent($data, 'admin', adminActorId(), 'question_added', 'question', $question['id'], ['courseId' => $question['courseId'], 'course' => $course['code'] ?? '', 'text' => substr($question['text'], 0, 120), 'status' => 'draft']); saveData($data); respond(['item' => $question], 201); }
     $question = findBy($data['questions'], 'id', $questionId); if (!$question) respond(['error' => 'Question not found.'], 404);
-    $question = array_merge($question, validateQuestion(array_merge($question, $input), $data));
-    $questionExam = findBy($data['exams'], 'id', $question['examId']); replaceBy($data['questions'], 'id', $questionId, $question); auditEvent($data, 'admin', getenv('CBT_ADMIN_EMAIL') ?: DEV_ADMIN_EMAIL, 'question_updated', 'question', $questionId, ['examId' => $question['examId'], 'course' => $questionExam['code'] ?? '', 'text' => substr($question['text'], 0, 120), 'changedFields' => array_keys($input)]); saveData($data); respond(['item' => $question]);
+    $question = array_merge($question, validateQuestion(array_merge($question, $input), $data)); requireUniqueQuestionBatch([$question], $data, (string)$question['courseId'], (string)$questionId);
+    $course = findBy($data['courses'], 'id', $question['courseId']); replaceBy($data['questions'], 'id', $questionId, $question); auditEvent($data, 'admin', adminActorId(), 'question_updated', 'question', $questionId, ['courseId' => $question['courseId'], 'course' => $course['code'] ?? '', 'text' => substr($question['text'], 0, 120), 'changedFields' => array_keys($input)]); saveData($data); respond(['item' => $question]);
 }
 if ($action === 'questions-bulk' && $method === 'POST') {
-    auth(true); enforceRateLimit($data, 'questions-bulk', 10, 600); $input = body(); $rows = $input['items'] ?? null;
+    auth(true); enforceRateLimit($data, 'questions-bulk', 10, 600); $input = body(); $courseId = trim((string)($input['courseId'] ?? '')); $course = findBy($data['courses'], 'id', $courseId); $rows = $input['items'] ?? null;
+    if (!$course) respond(['error' => 'Choose an existing course question bank.'], 422);
     if (!is_array($rows) || !$rows || count($rows) > 500 || !array_is_list($rows)) respond(['error' => 'Provide 1 to 500 question rows.'], 422);
-    $new = []; foreach ($rows as $index => $row) { if (!is_array($row)) respond(['error' => 'Question row ' . ($index + 1) . ' is invalid.'], 422); $new[] = ['id' => id()] + validateQuestion($row, $data); }
-    $bulkExam = findBy($data['exams'], 'id', $new[0]['examId']); array_push($data['questions'], ...$new); auditEvent($data, 'admin', getenv('CBT_ADMIN_EMAIL') ?: DEV_ADMIN_EMAIL, 'questions_bulk_imported', 'question', 'bulk', ['count' => count($new), 'course' => $bulkExam['code'] ?? '']); saveData($data); respond(['added' => count($new)], 201);
+    $new = []; foreach ($rows as $index => $row) { if (!is_array($row)) respond(['error' => 'Question row ' . ($index + 1) . ' is invalid.'], 422); $new[] = ['id' => id(), 'legacyComponentId' => null, 'publishedTo' => [], 'status' => 'draft'] + validateQuestion(array_merge($row, ['courseId' => $courseId]), $data); }
+    requireUniqueQuestionBatch($new, $data, $courseId);
+    array_push($data['questions'], ...$new); auditEvent($data, 'admin', adminActorId(), 'questions_bulk_imported', 'course', $courseId, ['count' => count($new), 'course' => $course['code'] ?? '', 'status' => 'draft']); saveData($data); respond(['added' => count($new), 'status' => 'draft'], 201);
+}
+
+if ($action === 'questions-bulk-delete' && $method === 'POST') {
+    auth(true); $input = body(); $courseId = trim((string)($input['courseId'] ?? '')); $examId = trim((string)($input['examId'] ?? '')); $ids = $input['ids'] ?? null;
+    $course = $courseId !== '' ? findBy($data['courses'], 'id', $courseId) : null;
+    $exam = $courseId === '' ? findBy($data['exams'], 'id', $examId) : null;
+    if (!$course && !$exam) respond(['error' => 'The selected course question bank no longer exists.'], 422);
+    if (!is_array($ids) || !$ids || !array_is_list($ids) || count($ids) > 100) respond(['error' => 'Select between 1 and 100 questions to delete.'], 422);
+    $ids = array_values(array_unique(array_filter(array_map('strval', $ids), fn($id) => $id !== '')));
+    $selected = array_values(array_filter($data['questions'], fn($question) => in_array((string)($question['id'] ?? ''), $ids, true)));
+    if (count($selected) !== count($ids) || ($course ? array_filter($selected, fn($question) => ($question['courseId'] ?? '') !== $courseId) : array_filter($selected, fn($question) => ($question['examId'] ?? '') !== $examId))) respond(['error' => 'One or more selected questions no longer belong to this question bank. Refresh the page and try again.'], 422);
+    $selectedIds = array_fill_keys($ids, true); $data['questions'] = array_values(array_filter($data['questions'], fn($question) => !isset($selectedIds[(string)($question['id'] ?? '')])));
+    auditEvent($data, 'admin', adminActorId(), 'questions_bulk_deleted', $course ? 'course' : 'exam', $course ? $courseId : $examId, ['course' => $course['code'] ?? $exam['code'] ?? '', 'component' => $course ? 'shared_pool' : ($exam['component'] ?? 'exam'), 'count' => count($ids), 'questionIds' => $ids]); saveData($data);
+    respond(['removed' => count($ids)]);
+}
+
+if ($action === 'questions-publish-target' && $method === 'POST') {
+    auth(true); $input = body(); $courseId = trim((string)($input['courseId'] ?? '')); $target = strtolower(trim((string)($input['target'] ?? ''))); $ids = $input['ids'] ?? null;
+    $course = findBy($data['courses'], 'id', $courseId);
+    if (!$course) respond(['error' => 'The selected course no longer exists. Refresh the page and try again.'], 422);
+    if (!in_array($target, ['test', 'exam'], true)) respond(['error' => 'Choose Test or Exam as the publishing target.'], 422);
+    $targetComponent = null;
+    foreach ($data['exams'] as $component) if (($component['courseId'] ?? '') === $courseId && strtolower((string)($component['component'] ?? 'exam')) === $target) { $targetComponent = $component; break; }
+    if (!$targetComponent) respond(['error' => 'This course does not yet have a ' . ucfirst($target) . ' component to publish questions to.'], 422);
+    if (!is_array($ids) || !$ids || !array_is_list($ids) || count($ids) > 100) respond(['error' => 'Select between 1 and 100 questions to publish.'], 422);
+    $ids = array_values(array_unique(array_filter(array_map('strval', $ids), fn($id) => $id !== '')));
+    $selected = array_values(array_filter($data['questions'], fn($question) => in_array((string)($question['id'] ?? ''), $ids, true)));
+    if (count($selected) !== count($ids) || array_filter($selected, fn($question) => ($question['courseId'] ?? '') !== $courseId)) respond(['error' => 'One or more selected questions no longer belong to this shared course pool. Refresh the page and try again.'], 422);
+    $otherTarget = $target === 'test' ? 'exam' : 'test';
+    $overlap = array_values(array_filter($selected, fn($question) => in_array($otherTarget, normalizeQuestionPublishTargets($question['publishedTo'] ?? []), true)));
+    if ($overlap && empty($input['confirmOverlap'])) respond(['error' => count($overlap) . ' selected question(s) are already published to ' . ucfirst($otherTarget) . '. Confirmation is required before they can also be published to ' . ucfirst($target) . '.', 'requiresOverlapConfirmation' => true, 'overlapCount' => count($overlap), 'overlapQuestionIds' => array_values(array_map(fn($question) => (string)$question['id'], $overlap))], 409);
+    $selectedIds = array_fill_keys($ids, true); $newlyAssigned = 0;
+    foreach ($data['questions'] as &$question) {
+        if (!isset($selectedIds[(string)($question['id'] ?? '')])) continue;
+        $targets = normalizeQuestionPublishTargets($question['publishedTo'] ?? []);
+        if (!in_array($target, $targets, true)) { $targets[] = $target; $newlyAssigned++; }
+        $question['publishedTo'] = normalizeQuestionPublishTargets($targets);
+        $question['status'] = $question['publishedTo'] ? 'published' : 'draft';
+    }
+    unset($question);
+    auditEvent($data, 'admin', adminActorId(), 'questions_published_to_component', 'course', $courseId, ['course' => $course['code'] ?? '', 'target' => $target, 'targetComponentId' => $targetComponent['id'], 'selectedCount' => count($ids), 'newlyAssignedCount' => $newlyAssigned, 'overlapCount' => count($overlap), 'questionIds' => $ids]);
+    saveData($data); respond(['published' => count($ids), 'newlyAssigned' => $newlyAssigned, 'overlapCount' => count($overlap), 'target' => $target]);
+}
+
+if ($action === 'questions-unpublish-target' && $method === 'POST') {
+    auth(true); $input = body(); $courseId = trim((string)($input['courseId'] ?? '')); $questionId = trim((string)($input['questionId'] ?? '')); $targets = normalizeQuestionPublishTargets($input['targets'] ?? []);
+    $course = findBy($data['courses'], 'id', $courseId); $question = findBy($data['questions'], 'id', $questionId);
+    if (!$course || !$question || ($question['courseId'] ?? '') !== $courseId) respond(['error' => 'This question is no longer in the selected course pool. Refresh the page and try again.'], 422);
+    if (!$targets) respond(['error' => 'Choose at least one component to unpublish from.'], 422);
+    $currentTargets = normalizeQuestionPublishTargets($question['publishedTo'] ?? []);
+    if (array_diff($targets, $currentTargets)) respond(['error' => 'This question is no longer published to one or more selected components. Refresh the page and try again.'], 409);
+    $question['publishedTo'] = array_values(array_filter($currentTargets, fn($target) => !in_array($target, $targets, true)));
+    $question['status'] = $question['publishedTo'] ? 'published' : 'draft';
+    replaceBy($data['questions'], 'id', $questionId, $question);
+    auditEvent($data, 'admin', adminActorId(), 'question_unpublished_from_component', 'question', $questionId, ['courseId' => $courseId, 'course' => $course['code'] ?? '', 'removedTargets' => $targets, 'remainingTargets' => $question['publishedTo'], 'text' => substr((string)($question['text'] ?? ''), 0, 120)]);
+    saveData($data); respond(['item' => $question, 'removedTargets' => $targets]);
+}
+
+if ($action === 'questions-deduplicate' && $method === 'POST') {
+    auth(true); $input = body(); $examId = trim((string)($input['examId'] ?? '')); $exam = findBy($data['exams'], 'id', $examId);
+    if (!$exam) respond(['error' => 'The selected Test or Exam component no longer exists.'], 422);
+    $usedQuestionIds = [];
+    foreach ($data['sessions'] as $session) foreach (($session['questions'] ?? []) as $question) if (!empty($question['id'])) $usedQuestionIds[(string)$question['id']] = true;
+    $groups = [];
+    foreach ($data['questions'] as $question) if (($question['examId'] ?? '') === $examId) $groups[questionTextFingerprint((string)($question['text'] ?? ''))][] = $question;
+    $removeIds = [];
+    foreach ($groups as $group) {
+        if (count($group) < 2) continue;
+        $published = array_values(array_filter($group, fn($question) => ($question['status'] ?? 'published') !== 'draft'));
+        $keeperId = (string)(($published[0]['id'] ?? $group[0]['id']) ?? '');
+        foreach ($group as $question) {
+            $id = (string)($question['id'] ?? '');
+            if ($id !== $keeperId && ($question['status'] ?? 'published') === 'draft' && !isset($usedQuestionIds[$id])) $removeIds[$id] = true;
+        }
+    }
+    if ($removeIds) {
+        $data['questions'] = array_values(array_filter($data['questions'], fn($question) => !isset($removeIds[(string)($question['id'] ?? '')])));
+        auditEvent($data, 'admin', adminActorId(), 'duplicate_draft_questions_removed', 'exam', $examId, ['course' => $exam['code'] ?? '', 'component' => $exam['component'] ?? 'exam', 'removed' => count($removeIds), 'policy' => 'exact text duplicates; published and session-referenced questions preserved']); saveData($data);
+    }
+    respond(['removed' => count($removeIds)]);
+}
+
+if ($action === 'strict-question-parse' && $method === 'POST') {
+    auth(true);
+    $courseId = trim((string)($_POST['courseId'] ?? '')); $course = findBy($data['courses'], 'id', $courseId);
+    if (!$course) respond(['error' => 'Choose a valid course Question Bank before importing questions.'], 422);
+    $source = strictQuestionImportSource(); $items = parseStrictQuestionText($source['text']); requireUniqueParsedQuestions($items, 'Strict-format import');
+    auditEvent($data, 'admin', adminActorId(), 'strict_questions_parsed', 'course', $courseId, ['course' => $course['code'] ?? '', 'filename' => $source['filename'], 'parsedQuestions' => count($items)]); saveData($data);
+    respond(['filename' => $source['filename'], 'items' => $items, 'limits' => ['questions' => STRICT_IMPORT_MAX_QUESTIONS, 'bytes' => STRICT_IMPORT_MAX_BYTES]]);
+}
+
+if ($action === 'strict-question-import' && $method === 'POST') {
+    auth(true); $input = body();
+    $courseId = trim((string)($input['courseId'] ?? '')); $course = findBy($data['courses'], 'id', $courseId); $items = $input['items'] ?? null;
+    if (!$course) respond(['error' => 'The selected course Question Bank no longer exists. Reopen it and try again.'], 422);
+    if (!is_array($items) || !$items || !array_is_list($items) || count($items) > STRICT_IMPORT_MAX_QUESTIONS) respond(['error' => 'Select between 1 and ' . STRICT_IMPORT_MAX_QUESTIONS . ' reviewed questions to import.'], 422);
+    $new = [];
+    foreach ($items as $index => $item) {
+        if (!is_array($item)) respond(['error' => 'Reviewed question ' . ($index + 1) . ' is invalid.'], 422);
+        $correctOptions = array_values(array_unique(array_map('intval', (array)($item['correctOptionIndexes'] ?? []))));
+        $question = validateQuestion(['courseId' => $courseId, 'text' => $item['questionText'] ?? '', 'options' => $item['options'] ?? [], 'correctOptions' => $correctOptions, 'type' => count($correctOptions) > 1 ? 'multiple' : 'single'], $data);
+        $new[] = ['id' => id(), 'legacyComponentId' => null, 'publishedTo' => [], 'status' => 'draft'] + $question;
+    }
+    $existingIndexes = array_fill_keys(requireUniqueQuestionBatch($new, $data, $courseId, '', true), true); $skipped = count($existingIndexes);
+    $new = array_values(array_filter($new, fn($question, $index) => !isset($existingIndexes[$index]), ARRAY_FILTER_USE_BOTH));
+    if (!$new) respond(['added' => 0, 'skipped' => $skipped, 'status' => 'draft']);
+    array_push($data['questions'], ...$new); auditEvent($data, 'admin', adminActorId(), 'strict_questions_imported', 'course', $courseId, ['course' => $course['code'] ?? '', 'count' => count($new), 'skippedExisting' => $skipped, 'status' => 'draft']); saveData($data);
+    respond(['added' => count($new), 'skipped' => $skipped, 'status' => 'draft'], 201);
+}
+
+if ($action === 'pdf-question-parse' && $method === 'POST') {
+    auth(true); enforceRateLimit($data, 'gemini-pdf-parse-' . adminActorId(), 1, 15); enforceSystemRateLimit($data, 'gemini-pdf-parse-daily', 50, 86400);
+    $courseId = trim((string)($_POST['courseId'] ?? '')); $course = findBy($data['courses'], 'id', $courseId);
+    if (!$course) respond(['error' => 'Choose a valid course Question Bank before importing a PDF.'], 422);
+    $parsed = extractPdfQuestionCandidates(); $lowConfidence = count(array_filter($parsed['items'], fn($item) => ($item['confidence'] ?? 'low') === 'low'));
+    auditEvent($data, 'admin', adminActorId(), 'pdf_questions_parsed', 'course', $courseId, ['course' => $course['code'] ?? '', 'filename' => $parsed['filename'], 'pages' => $parsed['pages'], 'parsedQuestions' => count($parsed['items']), 'lowConfidence' => $lowConfidence]); saveData($data);
+    respond(['filename' => $parsed['filename'], 'pages' => $parsed['pages'], 'items' => $parsed['items'], 'limits' => $parsed['limits']]);
+}
+
+if ($action === 'pdf-question-import' && $method === 'POST') {
+    auth(true); enforceRateLimit($data, 'pdf-question-import', 20, 3600); $input = body();
+    $courseId = trim((string)($input['courseId'] ?? '')); $course = findBy($data['courses'], 'id', $courseId); $items = $input['items'] ?? null;
+    if (!$course) respond(['error' => 'The selected course Question Bank no longer exists. Reopen it and try again.'], 422);
+    if (!is_array($items) || !$items || !array_is_list($items) || count($items) > PDF_IMPORT_MAX_QUESTIONS) respond(['error' => 'Select between 1 and ' . PDF_IMPORT_MAX_QUESTIONS . ' reviewed questions to import.'], 422);
+    $new = [];
+    foreach ($items as $index => $item) {
+        if (!is_array($item)) respond(['error' => 'Reviewed question ' . ($index + 1) . ' is invalid.'], 422);
+        $correctOptions = array_values(array_unique(array_map('intval', (array)($item['correctOptionIndexes'] ?? []))));
+        $question = validateQuestion(['courseId' => $courseId, 'text' => $item['questionText'] ?? '', 'options' => $item['options'] ?? [], 'correctOptions' => $correctOptions, 'type' => count($correctOptions) > 1 ? 'multiple' : 'single'], $data);
+        $new[] = ['id' => id(), 'legacyComponentId' => null, 'publishedTo' => [], 'status' => 'draft'] + $question;
+    }
+    $existingIndexes = array_fill_keys(requireUniqueQuestionBatch($new, $data, $courseId, '', true), true); $skipped = count($existingIndexes);
+    $new = array_values(array_filter($new, fn($question, $index) => !isset($existingIndexes[$index]), ARRAY_FILTER_USE_BOTH));
+    if (!$new) respond(['added' => 0, 'skipped' => $skipped, 'status' => 'draft']);
+    array_push($data['questions'], ...$new); auditEvent($data, 'admin', adminActorId(), 'pdf_questions_imported', 'course', $courseId, ['course' => $course['code'] ?? '', 'count' => count($new), 'skippedExisting' => $skipped, 'status' => 'draft']); saveData($data);
+    respond(['added' => count($new), 'skipped' => $skipped, 'status' => 'draft'], 201);
+}
+
+if ($action === 'openrouter-pdf-question-parse' && $method === 'POST') {
+    auth(true); enforceRateLimit($data, 'openrouter-pdf-parse-' . adminActorId(), 1, 30); enforceSystemRateLimit($data, 'openrouter-pdf-parse-daily', 30, 86400, 'OpenRouter PDF-import');
+    $courseId = trim((string)($_POST['courseId'] ?? '')); $course = findBy($data['courses'], 'id', $courseId);
+    if (!$course) respond(['error' => 'Choose a valid course Question Bank before importing a PDF.'], 422);
+    $parsed = extractPdfQuestionCandidates('openrouter'); $lowConfidence = count(array_filter($parsed['items'], fn($item) => ($item['confidence'] ?? 'low') === 'low'));
+    auditEvent($data, 'admin', adminActorId(), 'openrouter_pdf_questions_parsed', 'course', $courseId, ['course' => $course['code'] ?? '', 'filename' => $parsed['filename'], 'pages' => $parsed['pages'], 'parsedQuestions' => count($parsed['items']), 'lowConfidence' => $lowConfidence, 'model' => (string)(getenv('CBT_OPENROUTER_MODEL') ?: 'openrouter/free')]); saveData($data);
+    respond(['filename' => $parsed['filename'], 'pages' => $parsed['pages'], 'items' => $parsed['items'], 'limits' => $parsed['limits']]);
+}
+
+if ($action === 'openrouter-pdf-question-import' && $method === 'POST') {
+    auth(true); enforceRateLimit($data, 'openrouter-pdf-question-import', 20, 3600); $input = body();
+    $courseId = trim((string)($input['courseId'] ?? '')); $course = findBy($data['courses'], 'id', $courseId); $items = $input['items'] ?? null;
+    if (!$course) respond(['error' => 'The selected course Question Bank no longer exists. Reopen it and try again.'], 422);
+    if (!is_array($items) || !$items || !array_is_list($items) || count($items) > OPENROUTER_PDF_IMPORT_MAX_QUESTIONS) respond(['error' => 'Select between 1 and ' . OPENROUTER_PDF_IMPORT_MAX_QUESTIONS . ' reviewed questions to import.'], 422);
+    $new = [];
+    foreach ($items as $index => $item) {
+        if (!is_array($item)) respond(['error' => 'Reviewed question ' . ($index + 1) . ' is invalid.'], 422);
+        $correctOptions = array_values(array_unique(array_map('intval', (array)($item['correctOptionIndexes'] ?? []))));
+        $question = validateQuestion(['courseId' => $courseId, 'text' => $item['questionText'] ?? '', 'options' => $item['options'] ?? [], 'correctOptions' => $correctOptions, 'type' => count($correctOptions) > 1 ? 'multiple' : 'single'], $data);
+        $new[] = ['id' => id(), 'legacyComponentId' => null, 'publishedTo' => [], 'status' => 'draft'] + $question;
+    }
+    $existingIndexes = array_fill_keys(requireUniqueQuestionBatch($new, $data, $courseId, '', true), true); $skipped = count($existingIndexes);
+    $new = array_values(array_filter($new, fn($question, $index) => !isset($existingIndexes[$index]), ARRAY_FILTER_USE_BOTH));
+    if (!$new) respond(['added' => 0, 'skipped' => $skipped, 'status' => 'draft']);
+    array_push($data['questions'], ...$new); auditEvent($data, 'admin', adminActorId(), 'openrouter_pdf_questions_imported', 'course', $courseId, ['course' => $course['code'] ?? '', 'count' => count($new), 'skippedExisting' => $skipped, 'status' => 'draft', 'model' => (string)(getenv('CBT_OPENROUTER_MODEL') ?: 'openrouter/free')]); saveData($data);
+    respond(['added' => count($new), 'skipped' => $skipped, 'status' => 'draft'], 201);
 }
 
 if ($action === 'student-login' && $method === 'POST') {
@@ -1734,12 +2292,12 @@ if ($action === 'session-start' && $method === 'POST') {
     unset($item);
     foreach ($data['sessions'] as $existing) if ($existing['studentId'] === $student['id'] && $existing['examId'] === $exam['id'] && $existing['status'] === 'in_progress') {
         $accessToken = secretToken(); $existing['accessTokenHash'] = tokenHash($accessToken); $existing['passwordId'] = $passwordRecord['id'];
-        $existing['questions'] ??= array_values(array_filter($data['questions'], fn($question) => $question['examId'] === $exam['id'] && ($question['status'] ?? 'published') === 'published'));
+        $existing['questions'] ??= questionsPublishedForComponent($data, $exam);
         $existing['integrityEvents'] ??= [];
         replaceBy($data['sessions'], 'id', $existing['id'], $existing); saveData($data);
         clearSessionCookie('CBT_EXAM_LOGIN'); setSessionCookie('CBT_EXAM_SESSION', $accessToken, strtotime($existing['endsAt'])); respond(['session' => sessionPayload($existing), 'questions' => publicSessionQuestions($existing)]);
     }
-    $questionsForExam = array_values(array_filter($data['questions'], fn($question) => $question['examId'] === $exam['id'] && ($question['status'] ?? 'published') === 'published'));
+    $questionsForExam = questionsPublishedForComponent($data, $exam);
     $count = (int)$exam['questionCount'];
     if (count($questionsForExam) < $count) respond(['error' => "This assessment needs $count published questions before it can start; " . count($questionsForExam) . ' are available.'], 422);
     shuffle($questionsForExam);
