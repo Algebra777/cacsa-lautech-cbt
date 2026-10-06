@@ -74,14 +74,14 @@ a { color: var(--green-dark); }
 .theme-toggle-icon .theme-icon-moon { opacity: 0; transform: rotate(45deg) scale(.72); }
 .theme-toggle[data-theme="dark"] .theme-icon-sun, .theme-toggle[data-theme="light"] .theme-icon-moon { opacity: 1; transform: rotate(0) scale(1); }
 .ghost-btn, .outline-btn, .primary-btn, .danger-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; border: 1px solid transparent; border-radius: var(--radius-sm); padding: 10px 16px; font-weight: 700; text-decoration: none; transition: background-color .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease, transform .18s ease; }
-.ghost-btn { color: var(--muted); background: transparent; }
-.ghost-btn:hover { color: var(--ink); background: var(--paper); }
-.outline-btn { color: var(--green-dark); border-color: var(--line); background: white; }
-.outline-btn:hover { border-color: var(--green); background: var(--mint); }
-.primary-btn { color: white; background: var(--green); box-shadow: 0 8px 20px rgba(27,138,90,.19); }
-.primary-btn:hover { background: var(--green-dark); transform: translateY(-1px); }
-.danger-btn { color: #982b25; background: var(--red-bg); }
-.danger-btn:hover { color: white; background: var(--red); }
+.ghost-btn { color: var(--muted); border-color: var(--line); background: var(--surface); box-shadow: 0 1px 2px rgba(12, 32, 22, .05); }
+.ghost-btn:hover { color: var(--ink); border-color: color-mix(in srgb, var(--green) 38%, var(--line)); background: var(--paper); }
+.outline-btn { color: var(--green-dark); border-width: 2px; border-color: color-mix(in srgb, var(--green) 48%, var(--line)); background: color-mix(in srgb, white 86%, var(--green)); box-shadow: 0 1px 3px rgba(12, 32, 22, .08); }
+.outline-btn:hover { color: var(--green-dark); border-color: var(--green); background: var(--mint); box-shadow: 0 3px 8px color-mix(in srgb, var(--green) 16%, transparent); }
+.primary-btn { color: white; border-width: 2px; border-color: color-mix(in srgb, var(--green-dark) 60%, transparent); background: var(--green); box-shadow: 0 8px 20px rgba(27,138,90,.19); }
+.primary-btn:hover { color: white; background: var(--green-dark); transform: translateY(-1px); }
+.danger-btn { color: #982b25; border-width: 2px; border-color: #e9a49e; background: #ffe8e5; box-shadow: 0 1px 3px rgba(126, 36, 30, .08); }
+.danger-btn:hover { color: white; border-color: var(--red); background: var(--red); box-shadow: 0 3px 8px rgba(126, 36, 30, .18); }
 .ghost-btn:active, .outline-btn:active, .primary-btn:active, .danger-btn:active { transform: translateY(1px); }
 .primary-btn:active:not(:disabled) { transform: translateY(1px) scale(.97); }
 
@@ -315,7 +315,7 @@ a { color: var(--green-dark); }
 .admin-header p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
 .audit-hero { display: flex; align-items: center; justify-content: space-between; gap: 28px; min-height: 203px; padding: 34px 48px; color: white; border-radius: 24px; background: radial-gradient(circle at 8% 85%, rgba(0,180,137,.2), transparent 28%), linear-gradient(118deg, #092d34, #12213a 60%, #273f6d); box-shadow: 0 18px 34px rgba(21,42,72,.12); }
 .audit-kicker { color: #c4d1d7; font-size: 12px; text-transform: uppercase; }.audit-hero h1 { margin: 8px 0 5px; font: 800 16px var(--font-sans); }.audit-hero p { margin: 0; color: #a9bdc3; font-size: 12px; }.audit-hero strong { display: flex; align-items: center; gap: 9px; margin-top: 21px; color: #d8edf0; font-size: 13px; }.audit-hero strong i { width: 9px; height: 9px; background: #24d575; border-radius: 50%; box-shadow: 0 0 0 3px rgba(36,213,117,.12); }
-.audit-controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; max-width: 500px; }.audit-control { min-height: 28px; padding: 6px 9px; color: #13233a; border: 1px solid transparent; border-radius: 5px; background: white; font-size: 10px; font-weight: 800; }.audit-control:hover { background: #dce9ff; }.audit-control.audit-refresh { color: white; border-color: #d4e4f4; background: transparent; }.audit-control.audit-refresh:hover { color: #13233a; background: white; }.audit-tabs { margin: 18px 0 0; }.audit-tabs .primary-btn, .audit-tabs .outline-btn { min-height: 37px; }
+.audit-controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; max-width: 500px; }.audit-control { min-height: 30px; padding: 6px 9px; color: #13233a; border: 1px solid #9eb8d2; border-radius: 5px; background: #fafdff; box-shadow: 0 1px 2px rgba(0,32,93,.08); font-size: 10px; font-weight: 800; }.audit-control:hover { color: #092d5d; border-color: #397ab5; background: #dceeff; }.audit-control.audit-refresh { color: white; border-color: #b9d4ef; background: rgba(4,45,82,.48); }.audit-control.audit-refresh:hover { color: #13233a; background: white; }.audit-tabs { margin: 18px 0 0; }.audit-tabs .primary-btn, .audit-tabs .outline-btn { min-height: 37px; }
 .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
 .stat-card { padding: 20px; background: white; border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
 .stat-label { color: var(--muted); font-size: 12px; }
@@ -415,6 +415,37 @@ body.dark-theme .student-portal-mode { border-color: #355541; background: linear
 .inline-form .primary-btn { min-height: 46px; }
 .newsletter-table td { white-space: nowrap; }
 .small-btn { padding: 7px 10px; font-size: 11px; }
+/* Table-row actions must remain recognisable as controls, not look like text
+   sitting in a cell. These colours intentionally derive from the active
+   tenant's branding variables so one tenant can never tint another tenant. */
+.table-actions > .outline-btn,
+.table-actions > .primary-btn,
+.table-actions > .danger-btn {
+  min-height: 36px;
+  border-width: 1px;
+  box-shadow: 0 1px 2px rgba(12, 32, 22, .08);
+}
+.table-actions > .outline-btn {
+  color: var(--green-dark);
+  border-color: color-mix(in srgb, var(--green) 46%, #b8c9be);
+  background: color-mix(in srgb, white 94%, var(--green));
+}
+.table-actions > .outline-btn:hover {
+  border-color: var(--green);
+  background: var(--mint);
+  box-shadow: 0 3px 8px color-mix(in srgb, var(--green) 17%, transparent);
+}
+.table-actions > .danger-btn {
+  border-color: #efc1bc;
+  background: #fff4f2;
+  box-shadow: 0 1px 2px rgba(126, 36, 30, .07);
+}
+.table-actions > .danger-btn:hover {
+  color: white;
+  border-color: var(--red);
+  background: var(--red);
+  box-shadow: 0 3px 8px rgba(126, 36, 30, .18);
+}
 .empty-state { display: grid; place-items: center; gap: 8px; min-height: 150px; padding: 28px 20px; color: var(--muted); text-align: center; }
 .empty-state strong, .empty-state h2, .empty-state h3 { margin: 0; color: var(--ink); }
 .empty-state p { max-width: 440px; margin: 0; }
@@ -456,17 +487,17 @@ body.dark-theme .two-factor-card, body.dark-theme .two-factor-card.is-enabled, b
 .center-page .portal-loader, .admin-content .portal-loader { min-height: min(70vh, 540px); width: min(100%, 760px); border: 1px solid rgba(101, 176, 130, .2); border-radius: 24px; box-shadow: 0 22px 60px rgba(10, 29, 18, .17); }
 /* Tenant loaders must use the resolved tenant accent, not the legacy green
    defaults used by the shared loader. */
-body:not(.platform-surface) .portal-loader { color: var(--ink); background: radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--green) 24%, transparent), transparent 25rem), radial-gradient(circle at 11% 88%, color-mix(in srgb, var(--green-dark) 22%, transparent), transparent 27rem), linear-gradient(145deg, color-mix(in srgb, var(--green-dark) 22%, #101714), #101714 48%, #0b110d); }
+body:not(.platform-surface) .portal-loader { color: #f7fffa; background: radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--green) 24%, transparent), transparent 25rem), radial-gradient(circle at 11% 88%, color-mix(in srgb, var(--green-dark) 22%, transparent), transparent 27rem), linear-gradient(145deg, color-mix(in srgb, var(--green-dark) 22%, #101714), #101714 48%, #0b110d); }
 body:not(.platform-surface) .portal-loader::before { border-color: color-mix(in srgb, var(--green-dark) 30%, transparent); }
 body:not(.platform-surface) .portal-loader::after { border-color: color-mix(in srgb, var(--green-dark) 18%, transparent); }
 body:not(.platform-surface) .portal-loader-orbit::before { border-right-color: var(--green); border-bottom-color: var(--green); }
 body:not(.platform-surface) .portal-loader-orbit::after { border-color: color-mix(in srgb, var(--green-dark) 24%, transparent); border-left-color: var(--green-dark); }
 body:not(.platform-surface) .portal-loader-orbit > span { border-top-color: color-mix(in srgb, var(--green) 70%, transparent); }
 body:not(.platform-surface) .portal-loader-logo { box-shadow: 0 0 0 6px color-mix(in srgb, var(--green-dark) 40%, #101714), 0 10px 30px rgba(0,0,0,.34); }
-body:not(.platform-surface) .portal-loader-kicker { color: var(--green-dark); }
-body:not(.platform-surface) .portal-loader h1 { color: var(--ink); }
+body:not(.platform-surface) .portal-loader-kicker { color: color-mix(in srgb, var(--green) 74%, white); }
+body:not(.platform-surface) .portal-loader h1 { color: #f7fffa; }
 body:not(.platform-surface) .portal-loader-copy > p:last-child,
-body:not(.platform-surface) .portal-loader-status { color: var(--muted); }
+body:not(.platform-surface) .portal-loader-status { color: rgba(247, 255, 250, .78); }
 body:not(.platform-surface) .portal-loader-progress { background: color-mix(in srgb, var(--green) 18%, transparent); }
 body:not(.platform-surface) .portal-loader-progress > i { background: linear-gradient(90deg, color-mix(in srgb, var(--green) 25%, transparent), var(--green), color-mix(in srgb, var(--green) 25%, transparent)); }
 body:not(.platform-surface) .portal-loader-status > span { background: var(--green); }
@@ -612,6 +643,30 @@ body.dark-theme .table-toolbar input,
 body.dark-theme .table-toolbar select,
 body.dark-theme .filter-bar input,
 body.dark-theme .filter-bar select { background: var(--surface); }
+body.dark-theme .ghost-btn { color: #c4d4cb; border-color: #40564a; background: var(--surface); }
+body.dark-theme .ghost-btn:hover { color: white; border-color: #6b967a; background: #223329; }
+body.dark-theme .danger-btn { color: #ffbdb6; border-color: #965149; background: #3a221f; }
+body.dark-theme .danger-btn:hover { color: white; border-color: #e1645a; background: #b3372f; }
+body.dark-theme:not(.platform-surface) .table-actions > .outline-btn {
+  color: color-mix(in srgb, white 82%, var(--green));
+  border-color: color-mix(in srgb, var(--green) 65%, #52635a);
+  background: color-mix(in srgb, var(--surface) 82%, var(--green));
+}
+body.dark-theme:not(.platform-surface) .table-actions > .outline-btn:hover {
+  color: white;
+  border-color: var(--green);
+  background: color-mix(in srgb, var(--surface) 67%, var(--green));
+}
+body.dark-theme:not(.platform-surface) .table-actions > .danger-btn {
+  color: #ffb9b2;
+  border-color: #8f4943;
+  background: #3a211f;
+}
+body.dark-theme:not(.platform-surface) .table-actions > .danger-btn:hover {
+  color: white;
+  border-color: #d6584f;
+  background: #b3372f;
+}
 body.dark-theme .form-field input,
 body.dark-theme .form-field textarea,
 body.dark-theme .select-field,
@@ -659,8 +714,8 @@ body.dark-theme .auth-muted-action { color: var(--muted) !important; }
 body.dark-theme .reset-explainer { border-color: #426653; background: #142019; }
 body.dark-theme .reset-explainer strong { color: var(--green-dark); }
 body.dark-theme .login-success-alert { color: #9de8bb; border-color: #397b53; background: #143724; }
-body.dark-theme .audit-control { color: #d6e5dc; background: #1e3026; }
-body.dark-theme .audit-control:hover { color: var(--ink); background: #2d4938; }
+body.dark-theme .audit-control { color: #d6e5dc; border-color: #4b6f5a; background: #1e3026; }
+body.dark-theme .audit-control:hover { color: white; border-color: #83ba9a; background: #2d4938; }
 body.dark-theme .audit-control.audit-refresh:hover { color: #13233a; background: #f4fff8; }
 body.dark-theme .theme-toggle { color: var(--green-dark); background: #18271f; }
 body.dark-theme .theme-toggle:hover { background: #234632; }
@@ -1307,6 +1362,10 @@ body.platform-surface .primary-btn { background: var(--platform-interactive, #0d
 body.platform-surface .primary-btn:hover { background: #086557; }
 body.platform-surface .outline-btn { color: var(--platform-navy, #00205d); border-color: #c9dcf4; }
 body.platform-surface .outline-btn:hover { color: var(--platform-navy, #00205d); border-color: var(--platform-interactive-dark, #14d2ba); background: #effffc; }
+body.platform-surface .table-actions > .outline-btn { color: var(--platform-navy, #00205d); border-color: #9dbce0; background: #fafdff; box-shadow: 0 1px 2px rgba(0,32,93,.08); }
+body.platform-surface .table-actions > .outline-btn:hover { color: var(--platform-navy, #00205d); border-color: var(--platform-interactive, #0d8475); background: #eaf9ff; box-shadow: 0 3px 8px rgba(0,77,178,.14); }
+body.platform-surface .table-actions > .danger-btn { color: #9e3029; border-color: #eaa9a3; background: #fff5f3; }
+body.platform-surface .table-actions > .danger-btn:hover { color: white; border-color: #b3372f; background: #b3372f; box-shadow: 0 3px 8px rgba(126,36,30,.18); }
 body.platform-surface :is(button,input,select,textarea,a,[tabindex]):focus-visible { outline-color: var(--platform-interactive, #0d8475); }
 body.platform-surface .admin-login-page { background: #f7fbff; }
 body.platform-surface .admin-login-visual { overflow: hidden; background: radial-gradient(circle at 75% 20%, rgba(0,148,254,.3), transparent 30%), radial-gradient(circle at 23% 77%, rgba(20,210,186,.2), transparent 32%), linear-gradient(145deg, var(--platform-navy, #00205d), #01398d 56%, var(--platform-mid-blue, #024db2)); }
@@ -1343,6 +1402,10 @@ body.dark-theme.platform-surface .data-table thead, body.dark-theme.platform-sur
 body.dark-theme.platform-surface .admin-login-page > .center-page, body.dark-theme.platform-surface .center-page { background: radial-gradient(circle at 18% 16%, rgba(0,148,254,.17), transparent 34%), #07162f; }
 body.dark-theme.platform-surface .outline-btn { color: #bdeeff; border-color: #28527e; background: #0d2548; }
 body.dark-theme.platform-surface .outline-btn:hover { color: white; border-color: #14d2ba; background: #104761; }
+body.dark-theme.platform-surface .table-actions > .outline-btn { color: #d2efff; border-color: #3a6898; background: #0c2a52; }
+body.dark-theme.platform-surface .table-actions > .outline-btn:hover { color: white; border-color: #14d2ba; background: #104d69; }
+body.dark-theme.platform-surface .table-actions > .danger-btn { color: #ffc0ba; border-color: #99514a; background: #3d2523; }
+body.dark-theme.platform-surface .table-actions > .danger-btn:hover { color: white; border-color: #e1645a; background: #b3372f; }
 
 /* The shared loader is green for tenant portals by default. Override it only
    while Berevion's unscoped platform surface is active. */
@@ -1478,3 +1541,39 @@ body.dark-theme.platform-surface .topbar { border-color: rgba(126,187,255,.38); 
 .algebra-report-panel { margin-top:18px; }
 .algebra-result-sheet-draft { margin-top:18px; border-top:3px solid var(--green); }
 @media (max-width:760px) { .algebra-grid { grid-template-columns:1fr; } .algebra-safety-note { flex-direction:column; gap:4px; } }
+
+/* Tenant dark palettes are derived from the tenant accent.  Earlier dark-mode
+   rules pre-date multi-tenancy and used fixed green surfaces; keeping this
+   override last prevents one institution's old palette from bleeding into
+   another. Berevion's platform palette remains separately scoped above. */
+body.dark-theme:not(.platform-surface) {
+  --paper: color-mix(in srgb, var(--green-dark) 11%, #0c1016);
+  --surface: color-mix(in srgb, var(--green-dark) 16%, #15171e);
+  --line: color-mix(in srgb, var(--green-dark) 34%, #374049);
+  --mint: color-mix(in srgb, var(--green) 23%, #171b24);
+  --tenant-dark-input: color-mix(in srgb, var(--green-dark) 10%, #11151c);
+  --tenant-dark-hover: color-mix(in srgb, var(--green) 18%, #1a1e28);
+  --tenant-dark-sidebar: color-mix(in srgb, var(--green-dark) 24%, #0b0d13);
+}
+body.dark-theme:not(.platform-surface) .admin-shell {
+  background: radial-gradient(circle at 92% 4%, color-mix(in srgb, var(--green) 13%, transparent), transparent 31rem), var(--paper);
+}
+body.dark-theme:not(.platform-surface) :is(.admin-topbar, .topbar) {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--surface) 93%, #0a0c12);
+}
+body.dark-theme:not(.platform-surface) :is(.panel, .stat-card, .table-panel, .modal, .auth-card) {
+  border-color: var(--line);
+  background: var(--surface);
+}
+body.dark-theme:not(.platform-surface) :is(.form-field input, .form-field textarea, .select-field, .option, .exam-candidate, .table-toolbar input, .table-toolbar select, .filter-bar input, .filter-bar select) {
+  border-color: var(--line);
+  background: var(--tenant-dark-input);
+}
+body.dark-theme:not(.platform-surface) :is(.option:hover, .data-table tbody tr:hover) { background: var(--tenant-dark-hover); }
+body.dark-theme:not(.platform-surface) .admin-sidebar { background: var(--tenant-dark-sidebar); }
+body.dark-theme:not(.platform-surface) .admin-nav button:hover,
+body.dark-theme:not(.platform-surface) .admin-nav button.active { background: color-mix(in srgb, var(--green) 21%, var(--surface)); }
+body.dark-theme:not(.platform-surface) .account-menu button:not(.account-menu-toggle):hover { background: var(--tenant-dark-hover); }
+body.dark-theme:not(.platform-surface) .theme-toggle { border-color: var(--line); background: color-mix(in srgb, var(--surface) 84%, var(--green)); }
+body.dark-theme:not(.platform-surface) .theme-toggle:hover { background: color-mix(in srgb, var(--surface) 66%, var(--green)); }

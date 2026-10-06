@@ -56,7 +56,8 @@ function applyTheme(theme) {
   document.body.classList.toggle('dark-theme', dark);
   document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
   const platform = !TENANT_SLUG;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? (platform ? '#020f2d' : '#101714') : (platform ? '#00205d' : '#16774d'));
+  const value = platform ? {...PLATFORM_BRANDING_FALLBACK, ...(state.platformBranding || {})} : {...DEFAULT_BRANDING, ...(state.branding || {})};
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? (platform ? '#020f2d' : (value.accentColor || value.primaryColor || '#101714')) : (platform ? '#00205d' : value.primaryColor));
 }
 document.body.classList.toggle('platform-surface', !TENANT_SLUG);
 app.classList.toggle('platform-surface', !TENANT_SLUG);
@@ -100,7 +101,7 @@ function applyInstitutionBranding() {
     document.body.style.setProperty('--platform-interactive', value.primaryColor);
     document.body.style.setProperty('--platform-interactive-dark', value.accentColor);
   }
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', state.theme === 'dark' ? (platform ? '#020f2d' : '#101714') : value.primaryColor);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', state.theme === 'dark' ? (platform ? '#020f2d' : (value.accentColor || value.primaryColor || '#101714')) : value.primaryColor);
   let icons = [...document.querySelectorAll('link[rel~="icon"]')];
   if (!icons.length) { const icon = document.createElement('link'); icon.rel = 'icon'; document.head.append(icon); icons = [icon]; }
   icons.forEach(icon => { icon.href = brandingFavicon(value.faviconPath); });
