@@ -1,0 +1,6 @@
+Options -Indexes
+RewriteEngine On
+
+# Redirect-only compatibility shim for the former platform root. This folder
+# intentionally contains no application code, credentials, uploads, or data.
+RewriteRule ^(.*)$ /BEREVION/$1 [R=308,L,NE]

@@ -1,14 +1,16 @@
-# CACSA LAUTECH CBT
+# Berevion
 
-CACSA LAUTECH CBT is a PHP and vanilla JavaScript assessment application. The student portal, admin workspace, and REST API share the same JSON data store. No Node build step or external UI framework is required.
+For production hosting, operations, queue-worker scheduling, backup/restore drills, monitoring, and capacity validation, see [the production deployment guide](docs/production-deployment-guide.md). That guide is documentation only and does not alter the local XAMPP setup.
+
+Berevion is a PHP and vanilla JavaScript, multi-institution assessment platform. It uses MySQL for live application data; CACSA LAUTECH is its first tenant and remains independently branded at its tenant URL. No Node build step or external UI framework is required.
 
 ## Run locally
 
-1. Start Apache in XAMPP. The project needs PHP 8.1 or later and write access to this folder for the JSON data store.
-2. Open `http://localhost/CBT-Alge/` in a browser. Opening `index.html` with a `file://` URL will not connect to `api.php`.
-3. Sign in through **Admin panel**. Configure administrator credentials in the server environment with `CBT_ADMIN_EMAIL` and a `CBT_ADMIN_PASSWORD_HASH` produced by PHP's `password_hash()` before deployment. The development bootstrap account in `api.php` is only for local setup.
+1. Start Apache and MySQL in XAMPP. The project needs PHP 8.1 or later and MySQL credentials in the server-only `.env` file.
+2. Open `http://localhost/BEREVION/` for the Berevion platform, or `http://localhost/BEREVION/i/cacsa-lautech/` for CACSA LAUTECH. Opening `index.html` with a `file://` URL will not connect to `api.php`.
+3. The platform Super Admin signs in from the Berevion landing page. Institution Admins sign in from their institution-specific path.
 
-`api.php` persists students, exams, questions, access passwords, exam sessions, results, and grading settings in `cbt-data.json`. Back up that file before upgrading or moving a live installation. Restrict direct web access to the data file and serve the application over HTTPS outside localhost.
+`api.php` persists students, exams, questions, access passwords, exam sessions, results, and grading settings in MySQL with an institution boundary on every tenant record. `cbt-data.json` remains a read-only historical archive; do not expose it publicly. Serve the application over HTTPS outside localhost.
 
 ## Admin workflow
 
@@ -37,8 +39,8 @@ While an exam is active, the browser records tab switches, window blur, right-cl
 
 ## Unattended timeout finalization
 
-The browser asks the backend to submit as soon as its server-issued deadline reaches zero. For a local XAMPP installation, add a Windows Task Scheduler task every minute for truly unattended expiry processing (for example, when a browser is closed): program `C:\xampp\php\php.exe`, argument `C:\xampp\htdocs\CBT-Alge\expire-sessions.php`. The helper is CLI-only and cannot be opened from the web.
+The browser asks the backend to submit as soon as its server-issued deadline reaches zero. For a local XAMPP installation, add a Windows Task Scheduler task every minute for truly unattended expiry processing (for example, when a browser is closed): program `C:\xampp\php\php.exe`, argument `C:\xampp\htdocs\BEREVION\expire-sessions.php`. The helper is CLI-only and cannot be opened from the web.
 
 ## Data and security
 
-This is a single-server PHP/JSON application. Keep `cbt-data.json` private, writable by PHP, and included in backups. Set a unique admin password hash before any nonlocal use. Exam access passwords and admin sessions are separate; administrators should sign out on shared computers. Repeated failed sign-ins are temporarily throttled per client to reduce password guessing.
+This is a PHP/MySQL application. Keep `.env`, historical `cbt-data.json`, backups, and private uploads out of the web root where production deployment allows. Exam access passwords and admin sessions are separate; administrators should sign out on shared computers. Repeated failed sign-ins are temporarily throttled per client to reduce password guessing.

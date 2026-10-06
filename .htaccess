@@ -1,6 +1,11 @@
 Options -MultiViews
 RewriteEngine On
 
+# The active platform root is BEREVION. This retired, editor-locked source
+# folder remains web-inert during the rename hand-off: old encoded-space URLs
+# are redirected instead of ever serving a second copy of the application.
+RewriteRule ^(.*)$ /BEREVION/$1 [R=308,L,NE]
+
 <IfModule mod_php.c>
     php_value upload_max_filesize 12M
     php_value post_max_size 13M
@@ -19,9 +24,20 @@ RewriteEngine On
 # Clean client-side routes. Existing files (including api.php and assets) continue
 # to be served normally; admin/student paths load the single-page application.
 RewriteRule ^vendor(?:/|$) - [F,L]
+# The tenant slug is resolved by api.php from the original request URI. This
+# rewrite only routes the scoped endpoint; it never passes a client-controlled
+# institution ID into application code.
+RewriteRule ^i/[a-z0-9][a-z0-9-]*/api\.php$ api.php [L,QSA,NC]
+# The favicon is branding-aware too, so retain the tenant path while routing
+# the request to the shared image generator.
+RewriteRule ^i/[a-z0-9][a-z0-9-]*/favicon\.php$ favicon.php [L,QSA,NC]
+# Tenant roots are public student portals. Route them to the same SPA while
+# retaining the original /i/{slug}/ request URI; app.js and api.php then use
+# that server-visible path to load the tenant's branding and scoped data.
+RewriteRule ^i/[a-z0-9][a-z0-9-]*/?$ index.html [L,NC]
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^(?:admin|student)(?:/.*)?$ index.html [L]
+RewriteRule ^(?:i/[a-z0-9][a-z0-9-]*/)?(?:admin|student)(?:/.*)?$ index.html [L,NC]
 
 <Files "cbt-data.json">
     Require all denied

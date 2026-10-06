@@ -1,11 +1,30 @@
 <?php
 declare(strict_types=1);
 
-// Serve the CACSA crest as a true circular PNG favicon. The source logo is a
-// square JPEG, so a generated transparent PNG is more reliable in browser UI
-// than asking every browser to clip an external SVG image reference.
-$sourcePath = __DIR__ . DIRECTORY_SEPARATOR . 'CACSA Logo.jpeg';
-$source = is_file($sourcePath) ? @imagecreatefromjpeg($sourcePath) : false;
+// Serve the current institution crest as a true circular PNG favicon. The
+// source still falls back to CACSA's existing crest if a branding record or a
+// future uploaded image is temporarily unavailable.
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'mysql_data_store.php';
+
+$logoPath = 'CACSA Logo.jpeg';
+try {
+    if (mysqlStorageEnabled()) {
+        $branding = mysqlInstitutionBranding();
+        if (is_array($branding) && !empty($branding['logoPath'])) $logoPath = rawurldecode((string)$branding['logoPath']);
+    }
+} catch (Throwable) {
+    // A favicon must never make the portal fail to load; use the safe default.
+}
+$candidate = realpath(__DIR__ . DIRECTORY_SEPARATOR . ltrim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $logoPath), DIRECTORY_SEPARATOR));
+$root = realpath(__DIR__);
+if ($candidate === false || $root === false || !str_starts_with($candidate, $root . DIRECTORY_SEPARATOR) || !is_file($candidate)) $candidate = __DIR__ . DIRECTORY_SEPARATOR . 'CACSA Logo.jpeg';
+$extension = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
+$source = match ($extension) {
+    'jpg', 'jpeg' => @imagecreatefromjpeg($candidate),
+    'png' => @imagecreatefrompng($candidate),
+    'webp' => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($candidate) : false,
+    default => false,
+};
 
 if ($source === false) {
     http_response_code(404);
@@ -35,7 +54,7 @@ for ($y = 0; $y < $size; $y++) {
 }
 
 header('Content-Type: image/png');
-header('Cache-Control: public, max-age=86400');
+header('Cache-Control: public, max-age=3600');
 imagepng($icon);
 imagedestroy($source);
 imagedestroy($icon);

@@ -1,7 +1,26 @@
 const app = document.querySelector('#app');
 const toastRegion = document.querySelector('#toast-region');
-const APP_BASE = '/CACSALAUTECHCBT';
+const APP_ROOT = '/BEREVION';
+const TENANT_SLUG = (location.pathname.match(/\/i\/([a-z0-9][a-z0-9-]{0,118})(?:\/|$)/i) || [])[1]?.toLowerCase() || '';
+// Tenant selection is carried by the server-visible path, never a query value.
+const APP_BASE = TENANT_SLUG ? `${APP_ROOT}/i/${TENANT_SLUG}` : APP_ROOT;
 const API_URL = `${APP_BASE}/api.php?action=`;
+const DEFAULT_BRANDING = Object.freeze({
+  displayName: 'Assessment Centre', portalTitle: 'Assessment Centre', logoPath: 'uploads/platform-branding/berevion-logo.png', faviconPath: 'uploads/platform-branding/berevion-logo.png',
+  primaryColor: '#2563eb', accentColor: '#1d4ed8', navLabel: 'Assessment Centre', assessmentLabel: 'Assessment centre',
+  footerPrimary: 'Assessment platform', footerSecondary: 'Examine. Verify. Excel.',
+  footerLegal: '© {year} Assessment Centre. All rights reserved.', resultSheetTitle: 'Assessment Centre',
+  newsletterSenderName: 'Assessment Centre', supportEmail: ''
+});
+// This is deliberately separate from DEFAULT_BRANDING. Tenant branding must
+// never inherit CACSA's identity when a tenant record is unavailable.
+const PLATFORM_BRANDING_FALLBACK = Object.freeze({
+  displayName: 'Berevion', portalTitle: 'Berevion', logoPath: 'uploads/platform-branding/berevion-logo.png', faviconPath: 'uploads/platform-branding/berevion-logo.png',
+  primaryColor: '#0D8475', accentColor: '#14D2BA', navyColor: '#00205D', midBlueColor: '#024DB2', brightBlueColor: '#0094FE', navLabel: 'Berevion', assessmentLabel: 'Examine. Verify. Excel.',
+  footerPrimary: 'Berevion assessment platform', footerSecondary: 'Examine. Verify. Excel.',
+  footerLegal: '© {year} Berevion. All rights reserved.', resultSheetTitle: 'Berevion',
+  newsletterSenderName: 'Berevion', supportEmail: ''
+});
 const PAGE_SIZE = 10;
 const INTEGRITY_EVENT_TYPES = ['tab_switch', 'blur', 'context_menu', 'copy', 'paste', 'devtools'];
 // Edit this one list to change the student-portal hero words.
@@ -9,13 +28,16 @@ const HERO_ROTATING_WORDS = ['breakthrough', 'milestone', 'result', 'success', '
 
 const state = {
   adminAuthenticated: false,
+  // Incremented whenever the local admin identity changes. A delayed request
+  // from an earlier page/render must never sign out a newer successful login.
+  adminAuthVersion: 0,
   adminUser: readStored('algeAdminUser'),
   studentAccess: readStored('algeStudentSession'),
   attempt: readStored('algeExamAttempt'),
   exams: [], landingStatus: {openComponents: 0, studentsTesting: 0, clientIp: 'Unavailable', singleSessionLockActive: false}, activePeriod: {sessionLabel: '', semesterLabel: ''}, landingFilters: {search: '', type: 'all', category: 'all'}, adminExams: [], courses: [], academicSessions: [], semesters: [], students: [], questions: [], results: [],
-  dashboard: null, dashboardSelectedOutcomes: [], settings: null, backups: {items: [], settings: {}, nextRunAt: null, directory: 'database/backups/'}, backupRestoreFile: null, backupRestoreInfo: null, strictImportReview: null, pdfImportReview: null, questionCourseId: '', questionTargetModal: null, report: null, review: null, auditMonitor: [], auditEvents: [], roles: [], adminUsers: [], adminApprovals: {pending: [], recent: [], mailConfigured: false}, pendingApprovalCount: 0, account: null, accountTab: 'profile', newsletterSubscribers: [], newsletterStats: null, newsletters: [], newsletterMailConfigured: false, resultPeriods: [],
+  dashboard: null, dashboardSelectedOutcomes: [], settings: null, backups: {items: [], settings: {}, nextRunAt: null, directory: 'database/backups/'}, emergencyCodes: {active: false, remaining: 0, generatedAt: null}, backupRestoreFile: null, backupRestoreInfo: null, strictImportReview: null, pdfImportReview: null, algebraDraftReview: null, algebraInsight: null, algebraSetupSuggestion: null, algebraAuditDigest: null, algebraAnomalyFlags: null, algebraCommunicationDraft: null, algebraResultDraft: null, algebraResults: [], algebraSetupTargetComponentId: '', questionCourseId: '', questionTargetModal: null, report: null, review: null, auditMonitor: [], auditEvents: [], auditArchives: {items: [], settings: {}, directory: 'database/backups/'}, roles: [], adminUsers: [], institutions: [], adminApprovals: {pending: [], recent: [], mailConfigured: false}, pendingApprovalCount: 0, account: null, accountTab: 'profile', newsletterSubscribers: [], newsletterStats: null, newsletters: [], newsletterMailConfigured: false, resultPeriods: [],
   selectedExamId: null, questionIndex: 0, secondsLeft: 0, timerId: null, availabilityRefreshId: null, landingCountdownId: null, landingCountFrame: null, landingLiveValues: {}, landingStepObserver: null, landingStepsRevealPlayed: false, headlineRotationId: null, loginCountdownId: null, auditPollId: null, approvalPollId: null, devtoolsTimer: null, integrityLast: {}, saveState: 'saved', examTextScale: Math.max(.85, Math.min(1.35, Number(sessionStorage.getItem('algeExamTextScale')) || 1)), calculatorOpen: false, calculatorValue: '0', sidebarOpen: sessionStorage.getItem('algeSidebarOpen') == null ? !window.matchMedia('(max-width: 900px)').matches : sessionStorage.getItem('algeSidebarOpen') !== 'false', landingHeroEntrancePlayed: false,
-  loadSerial: 0, route: '', modalTrigger: null, csrfToken: '', passwordResetEmail: sessionStorage.getItem('algeAdminPasswordResetEmail') || '', theme: localStorage.getItem('algeTheme') || 'dark',
+  loadSerial: 0, route: '', modalTrigger: null, csrfToken: '', passwordResetEmail: sessionStorage.getItem('algeAdminPasswordResetEmail') || '', theme: localStorage.getItem('algeTheme') || 'dark', branding: null, platformBranding: null,
   filters: {
     students: {q: '', sort: 'fullName', dir: 'asc', page: 1, status: ''},
     exams: {q: '', sort: 'code', dir: 'asc', page: 1, status: ''},
@@ -33,9 +55,69 @@ function applyTheme(theme) {
   const dark = theme === 'dark';
   document.body.classList.toggle('dark-theme', dark);
   document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#101714' : '#16774d');
+  const platform = !TENANT_SLUG;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? (platform ? '#020f2d' : '#101714') : (platform ? '#00205d' : '#16774d'));
 }
+document.body.classList.toggle('platform-surface', !TENANT_SLUG);
+app.classList.toggle('platform-surface', !TENANT_SLUG);
 applyTheme(state.theme);
+
+function isPlatformSurface() { return !TENANT_SLUG; }
+function branding() { return isPlatformSurface() ? {...PLATFORM_BRANDING_FALLBACK, ...(state.platformBranding || {})} : {...DEFAULT_BRANDING, ...(state.branding || {})}; }
+function rootAsset(path) {
+  const value = String(path || '').trim();
+  if (!value || /^https?:\/\//i.test(value)) return value;
+  return `${APP_ROOT}/${value.replace(/^\/+/, '')}`;
+}
+function brandingFavicon(path) {
+  const value = String(path || '').trim();
+  if (!value || /^https?:\/\//i.test(value)) return value;
+  return `${APP_BASE}/${value.replace(/^\/+/, '')}`;
+}
+function brandFooterLegal() { return branding().footerLegal.replace('{year}', String(new Date().getFullYear())); }
+function applyInstitutionBranding() {
+  const value = branding();
+  const platform = isPlatformSurface();
+  document.body.classList.toggle('platform-surface', platform);
+  app.classList.toggle('platform-surface', platform);
+  document.title = `${value.portalTitle} | Computer-Based Testing`;
+  document.querySelector('meta[name="description"]')?.setAttribute('content', `${value.portalTitle} assessment portal for students and administrators.`);
+  document.documentElement.style.setProperty('--green', value.primaryColor);
+  document.documentElement.style.setProperty('--green-dark', value.accentColor);
+  // Set on body too: the dark theme defines local CSS variables, and an
+  // institution accent must remain consistent in both colour schemes.
+  document.body.style.setProperty('--green', value.primaryColor);
+  document.body.style.setProperty('--green-dark', value.accentColor);
+  if (platform) {
+    document.documentElement.style.setProperty('--platform-navy', value.navyColor || '#00205D');
+    document.documentElement.style.setProperty('--platform-mid-blue', value.midBlueColor || '#024DB2');
+    document.documentElement.style.setProperty('--platform-bright-blue', value.brightBlueColor || '#0094FE');
+    document.documentElement.style.setProperty('--platform-interactive', value.primaryColor);
+    document.documentElement.style.setProperty('--platform-interactive-dark', value.accentColor);
+    document.body.style.setProperty('--platform-navy', value.navyColor || '#00205D');
+    document.body.style.setProperty('--platform-mid-blue', value.midBlueColor || '#024DB2');
+    document.body.style.setProperty('--platform-bright-blue', value.brightBlueColor || '#0094FE');
+    document.body.style.setProperty('--platform-interactive', value.primaryColor);
+    document.body.style.setProperty('--platform-interactive-dark', value.accentColor);
+  }
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', state.theme === 'dark' ? (platform ? '#020f2d' : '#101714') : value.primaryColor);
+  let icons = [...document.querySelectorAll('link[rel~="icon"]')];
+  if (!icons.length) { const icon = document.createElement('link'); icon.rel = 'icon'; document.head.append(icon); icons = [icon]; }
+  icons.forEach(icon => { icon.href = brandingFavicon(value.faviconPath); });
+}
+async function loadInstitutionBranding() {
+  if (state.branding) return;
+  const response = await api('branding');
+  state.branding = {...DEFAULT_BRANDING, ...(response.branding || {})};
+  applyInstitutionBranding();
+}
+async function loadPlatformBranding() {
+  if (state.platformBranding) return;
+  const response = await api('platform-branding');
+  state.platformBranding = {...PLATFORM_BRANDING_FALLBACK, ...(response.branding || {})};
+  applyInstitutionBranding();
+}
+async function loadCurrentBranding() { return isPlatformSurface() ? loadPlatformBranding() : loadInstitutionBranding(); }
 
 function ensureAdminSidebarControls() {
   const shell = document.querySelector('.admin-shell');
@@ -92,7 +174,9 @@ function displayIp(value) {
 }
 function numeric(value, fallback = 0) { const number = Number(value); return Number.isFinite(number) ? number : fallback; }
 function can(permission) {
-  if (permission === 'roles' || permission === 'users' || permission === 'approvals' || permission === 'backups') return !state.adminUser || state.adminUser.roleId === 'superadmin';
+  if (permission === 'institutions') return isPlatformSuperAdmin() && !TENANT_SLUG;
+  if (permission === 'algebra') return (state.adminUser?.scope === 'institution' && ['admin', 'superadmin'].includes(String(state.adminUser?.roleId || ''))) || (isPlatformSuperAdmin() && Boolean(TENANT_SLUG));
+  if (permission === 'roles' || permission === 'users' || permission === 'approvals' || permission === 'backups' || permission === 'emergency-codes') return !state.adminUser || isInstitutionAdmin();
   if (permission === 'newsletter') return true;
   return !state.adminUser?.permissions || state.adminUser.permissions.includes(permission);
 }
@@ -118,7 +202,10 @@ function sidebarIcon(id) {
     users: '<circle cx="10" cy="7" r="3"/><path d="M4.5 17c.7-3.3 2.5-5 5.5-5s4.8 1.7 5.5 5M15.5 5.5h2M16.5 4.5v2"/>',
     approvals: '<circle cx="10" cy="10" r="7.5"/><path d="M10 5.8v4.5l3 1.8"/>',
     backups: '<ellipse cx="10" cy="5.5" rx="5.8" ry="2.5"/><path d="M4.2 5.5v8c0 1.4 2.6 2.5 5.8 2.5s5.8-1.1 5.8-2.5v-8M4.2 9.5C4.2 10.9 6.8 12 10 12s5.8-1.1 5.8-2.5"/>',
-    settings: '<circle cx="10" cy="10" r="2.6"/><path d="M10 2.8v2M10 15.2v2M17.2 10h-2M4.8 10h-2M15.1 4.9l-1.4 1.4M6.3 13.7l-1.4 1.4M15.1 15.1l-1.4-1.4M6.3 6.3 4.9 4.9"/>'
+    'emergency-codes': '<path d="M10 2.5 16 5v4.4c0 4-2.5 6.9-6 8.1-3.5-1.2-6-4.1-6-8.1V5z"/><path d="M10 6.2v4.5M10 13.5h.1"/>',
+    settings: '<circle cx="10" cy="10" r="2.6"/><path d="M10 2.8v2M10 15.2v2M17.2 10h-2M4.8 10h-2M15.1 4.9l-1.4 1.4M6.3 13.7l-1.4 1.4M15.1 15.1l-1.4-1.4M6.3 6.3 4.9 4.9"/>',
+    institutions: '<path d="M3 17h14M4.5 17V7.5h11V17M3.5 7.5 10 3l6.5 4.5M7 10h2M11 10h2M7 13h2M11 13h2"/>',
+    algebra: '<path d="M4 3.5h8.5L16 7v9.5H4z"/><path d="M12.5 3.5V7H16M7 11h6M7 14h4"/><path d="m8 8.5 1.3 1.3 2.5-2.5"/>'
   };
   return `<svg class="sidebar-icon" viewBox="0 0 20 20" aria-hidden="true">${paths[id] || paths.overview}</svg>`;
 }
@@ -133,7 +220,7 @@ function setSaveState(value) {
   document.querySelectorAll('[data-save-state]').forEach(element => element.textContent = meta.label);
   document.querySelectorAll('.autosave-status').forEach(element => element.dataset.state = meta.state);
 }
-function brand(subtitle = 'Assessment centre') { return `<div class="brand"><img class="brand-mark" src="CACSA%20Logo.jpeg" alt="CACSA logo"><span>CACSA LAUTECH CBT<small>${esc(subtitle)}</small></span></div>`; }
+function brand(subtitle = branding().assessmentLabel) { const value = branding(); return `<div class="brand"><img class="brand-mark" src="${esc(rootAsset(value.logoPath))}" alt="${esc(value.displayName)} logo"><span>${esc(value.navLabel)}<small>${esc(subtitle)}</small></span></div>`; }
 function themeToggleContents(isDark) {
   return `<span class="theme-toggle-icon" aria-hidden="true"><span class="theme-icon theme-icon-sun">☀</span><span class="theme-icon theme-icon-moon">☾</span></span><span class="theme-toggle-label">${isDark ? 'Light' : 'Dark'}</span>`;
 }
@@ -158,7 +245,8 @@ function toast(message, kind = 'info') {
   setTimeout(() => element.remove(), 5000);
 }
 function showError(error, form = null) {
-  const message = error?.message || 'Something went wrong. Please try again.';
+  const reference = String(error?.correlationId || '').trim();
+  const message = (error?.message || 'Something went wrong. Please try again.') + (reference ? ` Reference: ${reference}` : '');
   const alert = form?.querySelector('.alert') || document.querySelector('#alert');
   if (alert) {
     alert.textContent = message; alert.classList.add('visible');
@@ -170,6 +258,8 @@ function showError(error, form = null) {
   }
   toast(message, 'error');
 }
+function isInstitutionAdmin() { return ['admin', 'superadmin', 'platform_super_admin'].includes(String(state.adminUser?.roleId || '')); }
+function isPlatformSuperAdmin() { return state.adminUser?.scope === 'platform' && String(state.adminUser?.roleId || '') === 'platform_super_admin'; }
 function setBusy(element, busy) {
   if (!element) return;
   if (busy) { element.dataset.originalText = element.textContent; element.textContent = 'Working…'; element.disabled = true; }
@@ -189,16 +279,20 @@ async function lightweightDeviceFingerprint() {
   }
 }
 function query(action, params = {}) {
-  const search = new URLSearchParams({action});
+  const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) if (value !== '' && value != null) search.set(key, String(value));
-  return `api.php?${search}`;
+  const suffix = search.toString();
+  return `${API_URL}${encodeURIComponent(action)}${suffix ? `&${suffix}` : ''}`;
 }
 async function api(action, options = {}, params = {}) {
+  const adminAuthVersion = state.adminAuthVersion;
   const {admin: requireAdmin = false, ...fetchOptions} = options;
-  const adminAction = requireAdmin || ['admin-logout', 'admin-account', 'students', 'students-bulk', 'exam-password', 'questions', 'questions-bulk', 'questions-bulk-delete', 'questions-publish-target', 'questions-unpublish-target', 'questions-deduplicate', 'strict-question-parse', 'strict-question-import', 'pdf-question-parse', 'pdf-question-import', 'openrouter-pdf-question-parse', 'openrouter-pdf-question-import', 'results', 'result-review', 'calculate-student-result', 'settings', 'student-results', 'dashboard', 'dashboard-outcomes', 'audit-monitor', 'audit-events', 'exam-session-unlock', 'roles', 'admin-users', 'admin-approvals', 'newsletter-subscribers', 'newsletters', 'courses', 'course-components', 'academic-sessions', 'semesters', 'backups'].includes(action) || (action === 'exams' && options.method && options.method !== 'GET');
+  const adminAction = requireAdmin || ['admin-logout', 'admin-account', 'platform-institutions', 'students', 'students-bulk', 'exam-password', 'questions', 'questions-bulk', 'questions-bulk-delete', 'questions-publish-target', 'questions-unpublish-target', 'questions-deduplicate', 'strict-question-parse', 'strict-question-import', 'pdf-question-parse', 'pdf-question-import', 'openrouter-pdf-question-parse', 'openrouter-pdf-question-import', 'pdf-import-jobs', 'pdf-import-job-import', 'algebra-question-draft', 'algebra-question-import', 'algebra-performance-insight', 'algebra-setup-suggestion', 'algebra-audit-digest', 'algebra-anomaly-flags', 'algebra-communication-draft', 'algebra-result-report', 'results', 'result-review', 'calculate-student-result', 'reset-student-result', 'component-submission-delete', 'settings', 'student-results', 'dashboard', 'dashboard-outcomes', 'audit-monitor', 'audit-events', 'audit-archives', 'exam-session-unlock', 'roles', 'admin-users', 'admin-approvals', 'newsletter-subscribers', 'newsletters', 'courses', 'course-components', 'academic-sessions', 'semesters', 'backups', 'emergency-codes'].includes(action) || (action === 'exams' && options.method && options.method !== 'GET');
+  const isAdminAction = adminAction || action === 'dashboard-portal-mode';
   const mutating = ['POST', 'PUT', 'DELETE'].includes(String(options.method || 'GET').toUpperCase());
   if (mutating && action !== 'auth-csrf') await refreshCsrfToken();
-  const headers = {...(options.body ? {'Content-Type': 'application/json'} : {}), ...(mutating && state.csrfToken ? {'X-CSRF-Token': state.csrfToken} : {}), ...options.headers};
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  const headers = {...(options.body && !isFormData ? {'Content-Type': 'application/json'} : {}), ...(mutating && state.csrfToken ? {'X-CSRF-Token': state.csrfToken} : {}), ...options.headers};
   let response;
   try { response = await fetch(query(action, params), {...fetchOptions, headers, credentials: 'same-origin'}); }
   catch { throw new Error('Cannot reach the server. Check your connection and try again.'); }
@@ -206,10 +300,13 @@ async function api(action, options = {}, params = {}) {
   if (!response.ok) {
     const error = new Error(data.error || `Request failed (${response.status}).`);
     error.status = response.status;
-    if (response.status === 401 && adminAction) {
+    error.correlationId = data.correlationId || response.headers.get('X-Correlation-ID') || '';
+    error.maintenance = data.maintenance === true;
+    error.institutionSuspended = data.institutionSuspended === true;
+    if (response.status === 401 && isAdminAction && state.adminAuthenticated && adminAuthVersion === state.adminAuthVersion) {
       clearAdmin();
       navigate('admin/login');
-      toast('Your admin session ended. Please sign in again.', 'error');
+      toast('Your sign-in could not be verified. Please sign in again.', 'error');
     }
     throw error;
   }
@@ -219,7 +316,7 @@ function post(action, body, params = {}) { return api(action, {method: 'POST', b
 function put(action, body, params = {}) { return api(action, {method: 'PUT', body: JSON.stringify(body)}, params); }
 function remove(action, params = {}) { return api(action, {method: 'DELETE'}, params); }
 function clearAdmin() {
-  state.adminAuthenticated = false; state.adminUser = null;
+  state.adminAuthenticated = false; state.adminUser = null; state.adminAuthVersion += 1;
   sessionStorage.removeItem('algeAdminToken'); sessionStorage.removeItem('algeAdminExpiresAt'); sessionStorage.removeItem('algeAdminUser');
 }
 async function refreshCsrfToken() {
@@ -238,7 +335,8 @@ function clearAttempt() {
 function currentRoute() {
   const segments = decodeURIComponent(location.pathname).split('/').filter(Boolean);
   const routeIndex = segments.findIndex(segment => segment === 'admin' || segment === 'student');
-  return routeIndex >= 0 ? segments.slice(routeIndex).join('/') : 'student/selection';
+  if (routeIndex >= 0) return segments.slice(routeIndex).join('/');
+  return TENANT_SLUG ? 'student/selection' : 'platform/landing';
 }
 function navigate(route) {
   closeModal();
@@ -274,13 +372,27 @@ function normalizeList(name, response) {
   return items;
 }
 function portalLoader() {
-  return '<section class="portal-loader" role="status" aria-live="polite" aria-label="Preparing the CACSA LAUTECH CBT assessment portal"><div class="portal-loader-orbit" aria-hidden="true"><span></span><img class="portal-loader-logo" src="CACSA%20Logo.jpeg" alt=""></div><div class="portal-loader-copy"><p class="portal-loader-kicker">CACSA LAUTECH CBT</p><h1>Preparing your assessment portal</h1><p>Loading courses and assessment information for you.</p></div><div class="portal-loader-progress" aria-hidden="true"><i></i></div><p class="portal-loader-status"><span aria-hidden="true"></span>Connecting to assessment services</p></section>';
+  const value = branding();
+  return `<section class="portal-loader ${isPlatformSurface() ? 'platform-loader' : ''}" role="status" aria-live="polite" aria-label="Preparing the ${esc(value.portalTitle)} assessment portal"><div class="portal-loader-orbit" aria-hidden="true"><span></span><img class="portal-loader-logo" src="${esc(rootAsset(value.logoPath))}" alt=""></div><div class="portal-loader-copy"><p class="portal-loader-kicker">${esc(value.portalTitle)}</p><h1>Preparing your assessment portal</h1><p>Loading courses and assessment information for you.</p></div><div class="portal-loader-progress" aria-hidden="true"><i></i></div><p class="portal-loader-status"><span aria-hidden="true"></span>Connecting to assessment services</p></section>`;
+}
+function portalSetupPage() {
+  return portalLoader().replace(`Preparing the ${branding().portalTitle} assessment portal`, 'Student portal setup in progress').replace('Preparing your assessment portal', 'Assessment setup in progress').replace('Loading courses and assessment information for you.', 'Tests and exams will appear here once preparation is complete.').replace('Connecting to assessment services', 'Administrators are preparing assessment content');
 }
 function loadingPage(admin = false) {
   const loading = portalLoader();
   if (admin) return adminShell(loading);
   if ((parts()[1] || 'selection') === 'selection') return loading;
   return `${topbar()}<main class="center-page">${loading}</main>`;
+}
+function platformLandingPage() {
+  const value = branding();
+  return `<main class="platform-landing"><section class="platform-landing-inner"><div class="platform-brand-lockup"><img src="${esc(rootAsset(value.logoPath))}" alt="${esc(value.displayName)} logo"><span>${esc(value.displayName)}</span></div><p class="eyebrow">Assessment platform</p><h1>Examine.<br><span>Verify.</span> Excel.</h1><p class="platform-landing-copy">A secure, institution-ready computer-based assessment platform built for clear administration and confident outcomes.</p><div class="platform-landing-actions"><button class="primary-btn" type="button" data-route="admin/login">Super Admin sign in</button><a class="outline-btn" href="${esc(APP_ROOT)}/i/cacsa-lautech/">Open CACSA LAUTECH portal</a></div><p class="platform-landing-note">Institution administrators and students should use their institution’s dedicated portal link.</p></section><div class="platform-landing-art" aria-hidden="true"><span></span><span></span><span></span></div></main>`;
+}
+function maintenancePage() {
+  return `${topbar()}<main class="center-page maintenance-page"><section class="auth-card maintenance-card" role="status" aria-live="polite"><span class="eyebrow">System update</span><h1>Brief maintenance</h1><p>We are completing a short system update. Please check back shortly.</p><p class="maintenance-note">No assessment or administrator data is being changed while this notice is shown.</p></section></main>`;
+}
+function institutionSuspendedPage() {
+  return `${topbar()}<main class="center-page maintenance-page"><section class="auth-card maintenance-card" role="status" aria-live="polite"><span class="eyebrow">Institution access</span><h1>Access suspended</h1><p>This institution’s access has been suspended — contact the platform administrator.</p><p class="maintenance-note">Student, assessment, and administrator records remain intact and will be available again if access is reactivated.</p></section></main>`;
 }
 function assessmentIcon(exam) {
   const subject = `${exam.code || ''} ${exam.title || ''}`.toLowerCase();
@@ -418,7 +530,7 @@ function topbar(login = false) {
   const actions = login
     ? `${themeToggle()}<button class="invigilator-help-btn" type="button" data-action="invigilator-help">Invigilator help</button><span class="student-account-placeholder" aria-label="Student account placeholder">●</span>`
     : `${themeToggle()}<button class="portal-help-btn" type="button" data-action="candidate-rules" aria-label="Open candidate rules" title="Candidate rules">i</button>`;
-  return `<header class="topbar">${brand(login ? 'Examination & verification center' : 'Assessment centre')}<div class="topbar-actions">${actions}</div></header>`;
+  return `<header class="topbar">${brand(login ? 'Examination & verification center' : branding().assessmentLabel)}<div class="topbar-actions">${actions}</div></header>`;
 }
 
 async function render() {
@@ -434,7 +546,7 @@ async function render() {
   clearTimeout(state.auditPollId); state.auditPollId = null;
   clearTimeout(state.approvalPollId); state.approvalPollId = null;
   const route = parts();
-  const routeKey = route.join('/') || 'student/selection';
+  const routeKey = route.join('/') || (TENANT_SLUG ? 'student/selection' : 'platform/landing');
   if (routeKey !== 'student/selection') {
     state.landingHeroEntrancePlayed = false;
     state.landingLiveValues = {};
@@ -442,10 +554,20 @@ async function render() {
   }
   state.route = routeKey;
   const isAdmin = route[0] === 'admin';
-  if (isAdmin && !state.adminAuthenticated && ['register', 'forgot-password', 'reset-password', 'login'].includes(route[1])) {
+  const isPlatformLanding = route[0] === 'platform' && route[1] === 'landing';
+  try { await loadCurrentBranding(); }
+  catch (error) {
+    if (error.maintenance) { app.innerHTML = maintenancePage(); return; }
+    app.innerHTML = `<main class="center-page"><section class="auth-card"><h1>Unable to load</h1><p>${esc(error.message)}</p><button class="primary-btn" data-action="retry">Try again</button></section></main>`;
+    return;
+  }
+  if (isPlatformLanding) { app.innerHTML = platformLandingPage(); return; }
+  if (isAdmin && !state.adminAuthenticated && ['register', 'forgot-password', 'reset-password', 'emergency-recovery', 'login', 'login-2fa'].includes(route[1])) {
     if (route[1] === 'register') { app.innerHTML = adminRequestPage(); return; }
     if (route[1] === 'forgot-password') { app.innerHTML = adminForgotPasswordPage(); return; }
     if (route[1] === 'reset-password') { app.innerHTML = adminResetPasswordPage(); return; }
+    if (route[1] === 'emergency-recovery') { app.innerHTML = adminEmergencyRecoveryPage(); return; }
+    if (route[1] === 'login-2fa') { app.innerHTML = adminLoginTwoFactorPage(); return; }
     app.innerHTML = adminLoginPage();
     return;
   }
@@ -454,8 +576,19 @@ async function render() {
     if (isAdmin) await loadAdmin(route);
     else await loadStudent(route);
     if (serial !== state.loadSerial) return;
+    if (!isAdmin && (route[1] || 'selection') === 'selection' && state.studentPortalSetupMode) {
+      app.innerHTML = portalSetupPage();
+      scheduleAvailabilityRefresh();
+      return;
+    }
     app.innerHTML = isAdmin ? adminShell(adminPage(route)) : studentPage(route);
+    if (isAdmin && route[1] === 'student-results') {
+      const draft = state.algebraResultDraft;
+      const matches = draft && draft.studentId === route[2] && draft.sessionId === route[3] && draft.semesterId === route[4];
+      if (matches) document.querySelector('.admin-content')?.insertAdjacentHTML('beforeend', `<section class="panel algebra-result-sheet-draft"><span class="section-kicker">Algebra report draft — review before printing</span><h2>${esc(draft.heading || '')}</h2><p class="algebra-summary">${esc(draft.summary || '')}</p>${(draft.highlights || []).length ? `<ul>${draft.highlights.map(item => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}<p class="table-muted">${esc(draft.reviewNote || '')}</p></section>`);
+    }
     if (isAdmin) setAdminSidebarOpen(state.sidebarOpen);
+    if (isAdmin && route[1] === 'overview') enhanceDashboardPortalMode();
     if (!isAdmin && route[1] === 'exam') { startTimer(); startDevtoolsSignal(); }
     if (!isAdmin && route[1] === 'login') startLoginCountdown();
     if (!isAdmin && (route[1] || 'selection') === 'selection') { enhanceLandingVisuals(); startLandingCountdowns(); }
@@ -463,10 +596,12 @@ async function render() {
     // stay current without inventing a separate monitoring feed.
     if (!isAdmin && (route[1] || 'selection') === 'selection') scheduleAvailabilityRefresh();
     if (isAdmin && route[1] === 'audit' && route[2] !== 'trail') scheduleAuditMonitorPoll();
-    if (isAdmin && state.adminUser?.roleId === 'superadmin') scheduleApprovalBadgePoll();
+    if (isAdmin && isInstitutionAdmin()) scheduleApprovalBadgePoll();
   } catch (error) {
     if (serial !== state.loadSerial) return;
     if (isAdmin && error.status === 401) return;
+    if (error.maintenance) { app.innerHTML = maintenancePage(); return; }
+    if (error.institutionSuspended) { app.innerHTML = institutionSuspendedPage(); return; }
     app.innerHTML = `${isAdmin ? '' : topbar()}<main class="center-page"><section class="auth-card"><h1>Unable to load</h1><p>${esc(error.message)}</p><button class="primary-btn" data-action="retry">Try again</button></section></main>`;
   }
 }
@@ -475,7 +610,7 @@ function scheduleAvailabilityRefresh() {
   state.availabilityRefreshId = setTimeout(() => {
     state.availabilityRefreshId = null;
     if (currentRoute() === 'student/selection') render();
-  }, 15000);
+  }, 5 * 60 * 1000);
 }
 function scheduleAuditMonitorPoll() {
   state.auditPollId = setTimeout(async () => {
@@ -492,7 +627,7 @@ function scheduleAuditMonitorPoll() {
 function scheduleApprovalBadgePoll() {
   state.approvalPollId = setTimeout(async () => {
     state.approvalPollId = null;
-    if (!state.adminAuthenticated || state.adminUser?.roleId !== 'superadmin') return;
+    if (!state.adminAuthenticated || !isInstitutionAdmin()) return;
     try {
       const response = await api('admin-approvals', {}, {summary: 'true'});
       state.pendingApprovalCount = numeric(response.summary?.pending);
@@ -501,7 +636,7 @@ function scheduleApprovalBadgePoll() {
         badge.classList.toggle('is-empty', !state.pendingApprovalCount);
       });
     } catch { /* The next navigation will surface a session or connectivity error. */ }
-    if (state.adminAuthenticated && state.adminUser?.roleId === 'superadmin') scheduleApprovalBadgePoll();
+    if (state.adminAuthenticated && isInstitutionAdmin()) scheduleApprovalBadgePoll();
   }, 20000);
 }
 
@@ -510,6 +645,7 @@ async function loadStudent(route) {
   const activeAssessments = await api('exams', {}, {active: 'true'});
   state.exams = normalizeList('activeExams', activeAssessments);
   state.landingStatus = activeAssessments.liveStatus || {openComponents: state.exams.length, studentsTesting: 0, clientIp: 'Unavailable', singleSessionLockActive: false};
+  state.studentPortalSetupMode = Boolean(activeAssessments.studentPortalSetupMode);
   state.activePeriod = activeAssessments.activePeriod || {sessionLabel: '', semesterLabel: ''};
   state.selectedExamId = route[2] || null;
   if (step !== 'selection' && !selectedExam()) throw new Error('This assessment is no longer available. Return to the assessment list.');
@@ -565,10 +701,15 @@ async function loadAdmin(route) {
   const accountSnapshot = await api('admin-account');
   if (accountSnapshot.account) {
     state.adminAuthenticated = true;
-    state.adminUser = {...state.adminUser, id: accountSnapshot.account.id, name: accountSnapshot.account.name, email: accountSnapshot.account.email, roleId: accountSnapshot.account.roleId, role: accountSnapshot.account.roleName || state.adminUser?.role, permissions: accountSnapshot.account.permissions || []};
+    state.adminAuthVersion += 1;
+    state.adminUser = {...state.adminUser, id: accountSnapshot.account.id, name: accountSnapshot.account.name, email: accountSnapshot.account.email, roleId: accountSnapshot.account.roleId, role: accountSnapshot.account.roleName || state.adminUser?.role, scope: accountSnapshot.account.scope || state.adminUser?.scope || '', permissions: accountSnapshot.account.permissions || []};
     saveStored('algeAdminUser', state.adminUser);
   }
-  if (state.adminUser?.roleId === 'superadmin') {
+  // A newly provisioned tenant Admin may only use admin-account until their
+  // one-time password is replaced. Do not preload approval data here: that
+  // protected request would correctly be rejected and previously hid the
+  // force-password form behind an "Unable to load" error.
+  if (isInstitutionAdmin() && !accountSnapshot.account?.mustChangePassword) {
     const summary = await api('admin-approvals', {}, {summary: 'true'});
     state.pendingApprovalCount = numeric(summary.summary?.pending);
   }
@@ -606,17 +747,33 @@ async function loadAdmin(route) {
       state.questions = []; state.questionCourseId = '';
     }
   }
+  if (page === 'algebra') {
+    const [courses, results] = await Promise.all([api('courses', {}, {pageSize: 100}), api('results', {}, {pageSize: 100})]);
+    state.courses = courses.items || []; state.algebraResults = results.items || [];
+  }
+  if (page === 'institutions') state.institutions = (await api('platform-institutions')).items || [];
   if (page === 'results') {
     const response = await api('results', {}, {...listQuery('results'), ...resultPeriodParts()});
     state.results = normalizeList('results', response); state.resultPeriods = response.periods || [];
   }
   if (page === 'settings') {
-    const [settings, sessions, semesters] = await Promise.all([api('settings'), api('academic-sessions'), api('semesters')]);
-    state.settings = settings.settings; state.academicSessions = sessions.items || []; state.semesters = semesters.items || [];
+    // The unscoped Super Admin workspace has platform settings only. Tenant
+    // academic settings are loaded solely after selecting an explicit /i/slug/
+    // route from the Institutions panel.
+    if (isPlatformSuperAdmin() && !TENANT_SLUG) {
+      state.settings = null; state.academicSessions = []; state.semesters = [];
+    } else {
+      const [settings, sessions, semesters] = await Promise.all([api('settings'), api('academic-sessions'), api('semesters')]);
+      state.settings = settings.settings; state.academicSessions = sessions.items || []; state.semesters = semesters.items || [];
+    }
   }
   if (page === 'backups') state.backups = await api('backups');
+  if (page === 'emergency-codes') state.emergencyCodes = await api('emergency-codes');
   if (page === 'audit') {
-    if (route[2] === 'trail') { const events = await api('audit-events', {}, auditQuery()); state.auditEvents = events.items || []; state.meta.audit = events.meta || {}; }
+    if (route[2] === 'trail') {
+      const [events, archives] = await Promise.all([api('audit-events', {}, auditQuery()), api('audit-archives')]);
+      state.auditEvents = events.items || []; state.meta.audit = events.meta || {}; state.auditArchives = archives;
+    }
     else state.auditMonitor = (await api('audit-monitor')).items || [];
   }
   if (page === 'roles') {
@@ -656,6 +813,7 @@ function invigilatorHelpModal() {
   openModal('Invigilator help', '<p>If you cannot access the assessment, contact your hall invigilator. They can confirm your registration and regenerate an assessment password where appropriate.</p><div class="modal-actions"><button class="primary-btn" data-action="close-modal">I understand</button></div>');
 }
 function selectionPage() {
+  const value = branding();
   const canResume = state.attempt?.session?.id && state.attempt?.examId && state.exams.some(exam => exam.id === state.attempt.examId);
   const all = state.exams;
   const categories = [...new Set(all.map(assessmentCategory))].sort((a, b) => a.localeCompare(b));
@@ -671,7 +829,7 @@ function selectionPage() {
     const status = urgent ? `<span class="assessment-window urgent" data-assessment-countdown="${esc(exam.endAt)}">Closing soon</span>` : '<span class="assessment-window"><i></i> Window open</span>';
     return `<article class="assessment-directory-card assessment-card-${component}" style="--card-delay:${index * 50}ms"><div class="assessment-directory-top"><div><span class="assessment-type-badge ${component}">${component === 'test' ? 'CA test' : 'Final exam'}</span><span class="assessment-category-tag">${esc(assessmentCategory(exam))}</span></div>${status}</div><div class="assessment-directory-heading"><span class="course-icon" aria-hidden="true">${assessmentIcon(exam)}</span><h3>${esc(exam.code)} --- ${esc(exam.title)}</h3></div><p>${esc(exam.description || 'Assessment details are provided by your academic coordinator.')}</p><dl class="assessment-stat-row"><div><dt>Questions</dt><dd>${numeric(exam.availableQuestionCount, numeric(exam.questionCount))}</dd></div><div><dt>Duration</dt><dd>${numeric(exam.duration)}m</dd></div><div><dt>Weight</dt><dd>${numeric(exam.maxMark)}%</dd></div><div><dt>Window</dt><dd>${esc(exam.window || 'Open now')}</dd></div></dl><div class="assessment-directory-footer"><span>${esc(exam.componentLabel || 'Exam')} component</span><button class="primary-btn" data-route="student/login/${esc(exam.id)}">Proceed to login →</button></div></article>`;
   }).join('');
-  return `<main class="landing landing-directory"><div class="landing-inner"><section class="portal-hero hero-entrance-pending"><div class="portal-hero-copy"><img class="portal-hero-watermark" src="CACSA%20Logo.jpeg" alt="" aria-hidden="true"><div class="portal-period hero-entrance-item hero-entrance-eyebrow">Student portal <span>${esc(period)}</span></div><h1 class="hero-entrance-item hero-entrance-headline">Your next <span class="hero-rotating-word" data-hero-rotating-word>breakthrough</span><br>starts here.</h1><p class="hero-entrance-item hero-entrance-copy">Select an available Test or Exam below. You will need your official university matriculation number and the unique component password issued by your administrator.</p><div class="portal-hero-actions hero-entrance-item hero-entrance-actions"><button class="primary-btn" data-action="scroll-assessments">View active assessments ↓</button><button class="outline-btn" data-action="candidate-rules">Candidate rules</button></div></div><div class="portal-hero-visual hero-entrance-item hero-entrance-visual"><img src="student-exam-lab-hero.png" alt="Students taking a computer-based assessment"><aside class="portal-hero-status"><div><strong>Assessments available now</strong><span class="live-indicator">Live</span></div><dl><div><dt>Open components</dt><dd>${numeric(state.landingStatus?.openComponents, all.length)}</dd></div><div><dt>Timing</dt><dd>Synchronized with Central LAUTECH server</dd></div><div><dt>Security protocol</dt><dd><em>Terminal lock active</em></dd></div></dl></aside></div></section><section class="candidate-step-grid" aria-label="How to take an assessment"><article><b>01</b><div><h2>Select course</h2><p>Identify your registered course code below and verify the scheduled exam duration and window.</p></div></article><article><b>02</b><div><h2>Supply credentials</h2><p>Input your university matric number and the component password announced by your invigilator.</p></div></article><article><b>03</b><div><h2>Launch workstation</h2><p>The secure lockdown interface takes over. Do not close the browser or toggle tabs during the test.</p></div></article></section>${canResume ? `<section class="panel resume-banner"><strong>You have an assessment in progress.</strong><button class="primary-btn" data-route="student/exam/${esc(state.attempt.examId)}">Resume assessment</button></section>` : ''}<section class="assessment-directory" id="active-assessments"><div class="assessment-directory-header"><div><div class="section-kicker">Live examination sessions</div><h2>Available assessments</h2><p>Each Test and Exam is entered separately while its active window is open.</p></div><label class="assessment-search"><span class="sr-only">Search assessments</span><input type="search" data-assessment-search value="${esc(filter.search)}" placeholder="Search code e.g. MTH 201, CHM…"></label></div><div class="assessment-filter-row">${pill('All assessments', all.length)}${pill('Final examinations', typeCount('exam'), 'exam')}${pill('Continuous assessment tests', typeCount('test'), 'test')}${categories.map(category => pill(category, all.filter(exam => assessmentCategory(exam) === category).length, 'all', category)).join('')}</div><div class="assessment-directory-grid">${cards || empty}</div></section><section class="live-status-strip" aria-label="Live CBT status"><span class="live-status-icon" aria-hidden="true">▣</span><div><strong>CBT session status <em><i></i> Live</em></strong><span>Real-time activity from the assessment service</span></div><dl><div><dt>Open components</dt><dd>${numeric(state.landingStatus?.openComponents, all.length)}</dd></div><div><dt>Students currently testing</dt><dd>${numeric(state.landingStatus?.studentsTesting)}</dd></div></dl></section></div><footer class="portal-footer"><span>LAUTECH Academic Directorate Certified Node</span><span>Assessment timing supplied by the CBT service</span><span>© ${new Date().getFullYear()} CACSA LAUTECH. All rights reserved.</span></footer></main>`;
+  return `<main class="landing landing-directory"><div class="landing-inner"><section class="portal-hero hero-entrance-pending"><div class="portal-hero-copy"><img class="portal-hero-watermark" src="${esc(rootAsset(value.logoPath))}" alt="" aria-hidden="true"><div class="portal-period hero-entrance-item hero-entrance-eyebrow">Student portal <span>${esc(period)}</span></div><h1 class="hero-entrance-item hero-entrance-headline">Your next <span class="hero-rotating-word" data-hero-rotating-word>breakthrough</span><br>starts here.</h1><p class="hero-entrance-item hero-entrance-copy">Select an available Test or Exam below. You will need your official university matriculation number and the unique component password issued by your administrator.</p><div class="portal-hero-actions hero-entrance-item hero-entrance-actions"><button class="primary-btn" data-action="scroll-assessments">View active assessments ↓</button><button class="outline-btn" data-action="candidate-rules">Candidate rules</button></div></div><div class="portal-hero-visual hero-entrance-item hero-entrance-visual"><img src="student-exam-lab-hero.png" alt="Students taking a computer-based assessment"><aside class="portal-hero-status"><div><strong>Assessments available now</strong><span class="live-indicator">Live</span></div><dl><div><dt>Open components</dt><dd>${numeric(state.landingStatus?.openComponents, all.length)}</dd></div><div><dt>Timing</dt><dd>Synchronized with the institution assessment server</dd></div><div><dt>Security protocol</dt><dd><em>Terminal lock active</em></dd></div></dl></aside></div></section><section class="candidate-step-grid" aria-label="How to take an assessment"><article><b>01</b><div><h2>Select course</h2><p>Identify your registered course code below and verify the scheduled exam duration and window.</p></div></article><article><b>02</b><div><h2>Supply credentials</h2><p>Input your university matric number and the component password announced by your invigilator.</p></div></article><article><b>03</b><div><h2>Launch workstation</h2><p>The secure lockdown interface takes over. Do not close the browser or toggle tabs during the test.</p></div></article></section>${canResume ? `<section class="panel resume-banner"><strong>You have an assessment in progress.</strong><button class="primary-btn" data-route="student/exam/${esc(state.attempt.examId)}">Resume assessment</button></section>` : ''}<section class="assessment-directory" id="active-assessments"><div class="assessment-directory-header"><div><div class="section-kicker">Live examination sessions</div><h2>Available assessments</h2><p>Each Test and Exam is entered separately while its active window is open.</p></div><label class="assessment-search"><span class="sr-only">Search assessments</span><input type="search" data-assessment-search value="${esc(filter.search)}" placeholder="Search code e.g. MTH 201, CHM…"></label></div><div class="assessment-filter-row">${pill('All assessments', all.length)}${pill('Final examinations', typeCount('exam'), 'exam')}${pill('Continuous assessment tests', typeCount('test'), 'test')}${categories.map(category => pill(category, all.filter(exam => assessmentCategory(exam) === category).length, 'all', category)).join('')}</div><div class="assessment-directory-grid">${cards || empty}</div></section><section class="live-status-strip" aria-label="Live CBT status"><span class="live-status-icon" aria-hidden="true">▣</span><div><strong>CBT session status <em><i></i> Live</em></strong><span>Real-time activity from the assessment service</span></div><dl><div><dt>Open components</dt><dd>${numeric(state.landingStatus?.openComponents, all.length)}</dd></div><div><dt>Students currently testing</dt><dd>${numeric(state.landingStatus?.studentsTesting)}</dd></div></dl></section></div><footer class="portal-footer"><span>${esc(value.footerPrimary)}</span><span>${esc(value.footerSecondary)}</span><span>${esc(brandFooterLegal())}</span></footer></main>`;
 }
 function refreshLandingPage() {
   const current = document.querySelector('.landing-directory');
@@ -692,6 +850,7 @@ function enhanceLandingVisuals() {
   landing.prepend(ambient);
 }
 function studentLoginPage() {
+  const value = branding();
   const exam = selectedExam();
   if (!exam) return missingSelection();
   const component = exam.componentLabel || (exam.component === 'test' ? 'Test' : 'Exam');
@@ -699,7 +858,7 @@ function studentLoginPage() {
   const passThreshold = numeric(exam.passThreshold, numeric(exam.maxMark) * .5);
   const singleSessionLock = Boolean(state.landingStatus?.singleSessionLockActive);
   const questionMode = exam.questionMode || 'Question format verified on start';
-  return `<main class="student-authentication-page"><div class="auth-breadcrumb"><button class="back-link" data-route="student/selection">← Assessments directory</button><span>/</span><span>${esc(period)}</span><span>/</span><b>Candidate authentication</b></div><div class="student-authentication-grid"><section class="candidate-auth-card"><div class="candidate-auth-heading"><div><h1>Candidate authentication <span aria-hidden="true">✿</span></h1><p>Enter your official LAUTECH matriculation number and the 8-character passcode generated for you by the administrator.</p></div><span class="single-session-badge ${singleSessionLock ? 'active' : ''}"><i></i>${singleSessionLock ? 'Single session lock active' : 'Single session protection unavailable'}</span></div><div class="allocated-assessment"><span aria-hidden="true">▣</span><div><small>Allocated assessment</small><strong>${esc(exam.code)} --- ${esc(exam.title)} <em>${esc(component)}</em></strong></div><button class="text-button" type="button" data-route="student/selection">Change course →</button></div><div id="alert" class="alert" role="alert"></div><form id="student-login-form"><label class="auth-login-field">LAUTECH matriculation number<input name="matricNumber" autocomplete="username" placeholder="2023007387" required><small>Use your standard matriculation format.</small></label><label class="auth-login-field">8-character assessment passcode${passwordInput('student-exam-password', 'one-time-code', 'minlength="8" maxlength="8" required')}<small>Case-sensitive.</small></label><section class="connection-identity"><div><strong>Connection identity</strong><span>Server-detected address for this sign-in attempt</span></div><b>${esc(state.landingStatus?.clientIp || 'Unavailable')}</b></section><button class="primary-btn authentication-submit">Authenticate & proceed to briefing <span aria-hidden="true">→</span></button></form><div class="auth-help-actions"><button type="button" data-action="invigilator-help">Having trouble with credentials?</button><button type="button" data-action="invigilator-help">Raise hand / contact hall invigilator</button></div></section><aside class="candidate-assessment-summary"><div class="component-summary-badges"><span>${esc(period)} ${component === 'Test' ? 'continuous assessment' : 'final examination'}</span><b>Weight: ${numeric(exam.maxMark)}%</b></div><h2>${esc(exam.code)} --- ${esc(exam.title)}</h2><p>${esc(exam.category || 'Course category')} · ${esc(component)} component</p><dl class="candidate-assessment-stats"><div><dt>Total scope</dt><dd>${numeric(exam.availableQuestionCount, numeric(exam.questionCount))} <small>${esc(questionMode)}</small></dd></div><div><dt>Duration</dt><dd>${numeric(exam.duration)} min <small>Server-timed component</small></dd></div><div><dt>Pass threshold</dt><dd>${passThreshold} / ${numeric(exam.maxMark)} <small>Set by your coordinator</small></dd></div><div><dt>Window closes</dt><dd class="login-window-countdown" data-login-countdown="${esc(exam.endAt)}">${examWindowCountdown(exam.endAt)}</dd><small>${esc(exam.window || '')}</small></div></dl></aside><aside class="candidate-protocols"><h2><span aria-hidden="true">⛨</span> Active session protocols</h2><ol><li><b>1</b><div><strong>Server-synchronized clock</strong><p>The countdown starts when you begin. Closing this browser tab does not pause the server-side timer.</p></div></li><li><b>2</b><div><strong>Screen-change monitoring</strong><p>Tab switches and browser blur events are logged. Your institution’s policy may warn you or lock further answering after repeat events.</p></div></li><li><b>3</b><div><strong>Continuous auto-save sync</strong><p>Every saved answer is sent to the server so a temporary interruption does not remove recorded responses.</p></div></li></ol></aside></div><section class="candidate-conduct-note"><span aria-hidden="true">◎</span><p>By proceeding, you agree to follow the LAUTECH CBT Code of Academic Conduct. Unauthorized materials, communication, or repeated screen changes may lead to a recorded integrity review.</p></section><footer class="candidate-auth-footer"><span>LAUTECH Academic Integrity & Assessment Directorate</span><span>© ${new Date().getFullYear()} Ladoke Akintola University of Technology · CACSA Campus Chapter CBT Center.</span></footer></main>`;
+  return `<main class="student-authentication-page"><div class="auth-breadcrumb"><button class="back-link" data-route="student/selection">← Assessments directory</button><span>/</span><span>${esc(period)}</span><span>/</span><b>Candidate authentication</b></div><div class="student-authentication-grid"><section class="candidate-auth-card"><div class="candidate-auth-heading"><div><h1>Candidate authentication <span aria-hidden="true">✿</span></h1><p>Enter your official ${esc(value.displayName)} matriculation number and the 8-character passcode generated for you by the administrator.</p></div><span class="single-session-badge ${singleSessionLock ? 'active' : ''}"><i></i>${singleSessionLock ? 'Single session lock active' : 'Single session protection unavailable'}</span></div><div class="allocated-assessment"><span aria-hidden="true">▣</span><div><small>Allocated assessment</small><strong>${esc(exam.code)} --- ${esc(exam.title)} <em>${esc(component)}</em></strong></div><button class="text-button" type="button" data-route="student/selection">Change course →</button></div><div id="alert" class="alert" role="alert"></div><form id="student-login-form"><label class="auth-login-field">${esc(value.displayName)} matriculation number<input name="matricNumber" autocomplete="username" placeholder="2023007387" required><small>Use your standard matriculation format.</small></label><label class="auth-login-field">8-character assessment passcode${passwordInput('student-exam-password', 'one-time-code', 'minlength="8" maxlength="8" required')}<small>Case-sensitive.</small></label><section class="connection-identity"><div><strong>Connection identity</strong><span>Server-detected address for this sign-in attempt</span></div><b>${esc(state.landingStatus?.clientIp || 'Unavailable')}</b></section><button class="primary-btn authentication-submit">Authenticate & proceed to briefing <span aria-hidden="true">→</span></button></form><div class="auth-help-actions"><button type="button" data-action="invigilator-help">Having trouble with credentials?</button><button type="button" data-action="invigilator-help">Raise hand / contact hall invigilator</button></div></section><aside class="candidate-assessment-summary"><div class="component-summary-badges"><span>${esc(period)} ${component === 'Test' ? 'continuous assessment' : 'final examination'}</span><b>Weight: ${numeric(exam.maxMark)}%</b></div><h2>${esc(exam.code)} --- ${esc(exam.title)}</h2><p>${esc(exam.category || 'Course category')} · ${esc(component)} component</p><dl class="candidate-assessment-stats"><div><dt>Total scope</dt><dd>${numeric(exam.availableQuestionCount, numeric(exam.questionCount))} <small>${esc(questionMode)}</small></dd></div><div><dt>Duration</dt><dd>${numeric(exam.duration)} min <small>Server-timed component</small></dd></div><div><dt>Pass threshold</dt><dd>${passThreshold} / ${numeric(exam.maxMark)} <small>Set by your coordinator</small></dd></div><div><dt>Window closes</dt><dd class="login-window-countdown" data-login-countdown="${esc(exam.endAt)}">${examWindowCountdown(exam.endAt)}</dd><small>${esc(exam.window || '')}</small></div></dl></aside><aside class="candidate-protocols"><h2><span aria-hidden="true">⛨</span> Active session protocols</h2><ol><li><b>1</b><div><strong>Server-synchronized clock</strong><p>The countdown starts when you begin. Closing this browser tab does not pause the server-side timer.</p></div></li><li><b>2</b><div><strong>Screen-change monitoring</strong><p>Tab switches and browser blur events are logged. Your institution’s policy may warn you or lock further answering after repeat events.</p></div></li><li><b>3</b><div><strong>Continuous auto-save sync</strong><p>Every saved answer is sent to the server so a temporary interruption does not remove recorded responses.</p></div></li></ol></aside></div><section class="candidate-conduct-note"><span aria-hidden="true">◎</span><p>By proceeding, you agree to follow the ${esc(value.displayName)} CBT Code of Academic Conduct. Unauthorized materials, communication, or repeated screen changes may lead to a recorded integrity review.</p></section><footer class="candidate-auth-footer"><span>${esc(value.displayName)} Academic Integrity & Assessment Directorate</span><span>© ${new Date().getFullYear()} ${esc(value.displayName)} Assessment Centre.</span></footer></main>`;
 }
 function calculatorResult(expression) {
   const value = String(expression || '').trim();
@@ -733,6 +892,7 @@ function briefingPage() {
 }
 function missingSelection() { return '<main class="center-page"><section class="auth-card"><h1>Assessment unavailable</h1><button class="primary-btn" data-route="student/selection">Back to assessments</button></section></main>'; }
 function examPage() {
+  const value = branding();
   const attempt = state.attempt, exam = selectedExam();
   if (attempt?.session?.status === 'locked') return lockedExamPage(exam, attempt);
   const questions = attempt?.questions || [];
@@ -752,7 +912,7 @@ function examPage() {
   const sessionReference = String(attempt.session?.id || '').slice(-8).toUpperCase() || 'Unavailable';
   const perQuestionMark = questions.length ? (numeric(exam.maxMark) / questions.length).toFixed(1).replace(/\.0$/, '') : '0';
   const sessionSecured = Boolean(state.landingStatus?.singleSessionLockActive);
-  return `<main class="exam-screen exam-workspace" style="--exam-text-scale:${state.examTextScale}"><header class="exam-workspace-header"><div class="exam-brand-block">${brand('Harmattan semester examination')}<span class="exam-security-badge ${sessionSecured ? 'active' : ''}"><i></i>${sessionSecured ? 'Session secured' : 'Session protection limited'}</span></div><div class="exam-candidate-card" aria-label="Candidate ${esc(studentName)}, matric number ${esc(studentMatric)}"><span class="candidate-avatar" aria-hidden="true">${esc(candidateInitials(studentName))}</span><span><strong>${esc(studentName)}</strong><small>Matric: ${esc(studentMatric)} · ${esc(student.department || 'Department not set')}</small><small>IP: ${esc(displayIp(attempt.session?.ipAddress || state.landingStatus?.clientIp || 'Unavailable'))}</small></span></div></header><div class="exam-session-reference">Session reference: <b>${esc(sessionReference)}</b><span data-save-state>${save.label}</span></div><div class="exam-workspace-layout"><section class="exam-main-column"><section class="exam-overview-card"><div><h1><span>${esc(exam.code)}</span> ${esc(exam.title)}</h1><p>Marks: ${perQuestionMark} per question · Question <b>${state.questionIndex + 1}</b> of ${questions.length} · Attempted: <b>${answeredCount}/${questions.length}</b> · Progress: <b>${progress}%</b></p></div><div class="workspace-timer"><span>Remaining time</span><strong id="timer" class="${timerClass()}" aria-live="off">${fmtTime(state.secondsLeft)}</strong></div></section><nav class="exam-workspace-toolbar" aria-label="Assessment tools"><button class="exam-tool-btn ${isFlagged ? 'active' : ''}" data-action="flag-question" aria-pressed="${isFlagged}">⚑ ${isFlagged ? 'Flagged for review' : 'Flag for review'}</button><button class="exam-tool-btn" data-action="toggle-calculator" aria-expanded="${state.calculatorOpen}">▣ Scratch calculator</button><div class="font-size-control" aria-label="Question text size"><button data-action="exam-font-size" data-font-change="-0.05" aria-label="Decrease question text size">A−</button><span>Aa</span><button data-action="exam-font-size" data-font-change="0.05" aria-label="Increase question text size">A+</button></div></nav><section class="workspace-question-card"><div class="workspace-question-heading"><span><b>${state.questionIndex + 1}</b> Question</span><small id="save-status" role="status" aria-live="polite">${selected.length ? 'Answer saved' : 'Not answered'} · ${answerInstruction}</small></div><h2>${esc(question.text)}</h2><div class="option-list workspace-option-list">${(question.options || []).map((option, index) => `<label class="option ${selected.includes(index) ? 'selected' : ''}"><input type="${question.type === 'multiple' ? 'checkbox' : 'radio'}" name="answer" value="${index}" ${selected.includes(index) ? 'checked' : ''}><span class="option-label">${String.fromCharCode(65 + index)}</span><span>${esc(option)}</span><i class="option-selected-indicator" aria-hidden="true"></i></label>`).join('')}</div>${calculatorWidget()}<div class="workspace-question-actions"><button class="outline-btn" data-action="previous-question" ${!state.questionIndex ? 'disabled' : ''}>← Previous question</button><button class="danger-btn" data-action="submit-prompt">Submit exam session</button>${state.questionIndex === questions.length - 1 ? '<button class="primary-btn" data-action="submit-prompt">Review & submit →</button>' : '<button class="primary-btn" data-action="next-question">Next question →</button>'}</div></section></section><aside class="workspace-palette"><div class="palette-heading"><h2>▦ Question palette</h2><span>Total: ${questions.length} questions</span></div><div class="palette-legend"><span><i class="answered"></i> Answered (${answeredCount})</span><span><i class="flagged"></i> Flagged (${flaggedCount})</span><span><i class="unanswered"></i> Unanswered (${unansweredCount})</span></div><div class="question-grid">${questions.map((item, index) => `<button class="question-number ${index === state.questionIndex ? 'current' : ''} ${(attempt.answers?.[item.id] || []).length ? 'answered' : ''} ${(attempt.flagged || []).includes(item.id) ? 'flagged' : ''}" data-question-index="${index}" aria-label="Question ${index + 1}${(attempt.answers?.[item.id] || []).length ? ', answered' : ', unanswered'}${(attempt.flagged || []).includes(item.id) ? ', flagged' : ''}">${index + 1}</button>`).join('')}</div></aside></div><footer class="exam-workspace-footer">© ${new Date().getFullYear()} Christian Association of Computer Science Assessment (CACSA) · Ladoke Akintola University of Technology Center</footer></main>`;
+  return `<main class="exam-screen exam-workspace" style="--exam-text-scale:${state.examTextScale}"><header class="exam-workspace-header"><div class="exam-brand-block">${brand('Semester examination')}<span class="exam-security-badge ${sessionSecured ? 'active' : ''}"><i></i>${sessionSecured ? 'Session secured' : 'Session protection limited'}</span></div><div class="exam-candidate-card" aria-label="Candidate ${esc(studentName)}, matric number ${esc(studentMatric)}"><span class="candidate-avatar" aria-hidden="true">${esc(candidateInitials(studentName))}</span><span><strong>${esc(studentName)}</strong><small>Matric: ${esc(studentMatric)} · ${esc(student.department || 'Department not set')}</small><small>IP: ${esc(displayIp(attempt.session?.ipAddress || state.landingStatus?.clientIp || 'Unavailable'))}</small></span></div></header><div class="exam-session-reference">Session reference: <b>${esc(sessionReference)}</b><span data-save-state>${save.label}</span></div><div class="exam-workspace-layout"><section class="exam-main-column"><section class="exam-overview-card"><div><h1><span>${esc(exam.code)}</span> ${esc(exam.title)}</h1><p>Marks: ${perQuestionMark} per question · Question <b>${state.questionIndex + 1}</b> of ${questions.length} · Attempted: <b>${answeredCount}/${questions.length}</b> · Progress: <b>${progress}%</b></p></div><div class="workspace-timer"><span>Remaining time</span><strong id="timer" class="${timerClass()}" aria-live="off">${fmtTime(state.secondsLeft)}</strong></div></section><nav class="exam-workspace-toolbar" aria-label="Assessment tools"><button class="exam-tool-btn ${isFlagged ? 'active' : ''}" data-action="flag-question" aria-pressed="${isFlagged}">⚑ ${isFlagged ? 'Flagged for review' : 'Flag for review'}</button><button class="exam-tool-btn" data-action="toggle-calculator" aria-expanded="${state.calculatorOpen}">▣ Scratch calculator</button><div class="font-size-control" aria-label="Question text size"><button data-action="exam-font-size" data-font-change="-0.05" aria-label="Decrease question text size">A−</button><span>Aa</span><button data-action="exam-font-size" data-font-change="0.05" aria-label="Increase question text size">A+</button></div></nav><section class="workspace-question-card"><div class="workspace-question-heading"><span><b>${state.questionIndex + 1}</b> Question</span><small id="save-status" role="status" aria-live="polite">${selected.length ? 'Answer saved' : 'Not answered'} · ${answerInstruction}</small></div><h2>${esc(question.text)}</h2><div class="option-list workspace-option-list">${(question.options || []).map((option, index) => `<label class="option ${selected.includes(index) ? 'selected' : ''}"><input type="${question.type === 'multiple' ? 'checkbox' : 'radio'}" name="answer" value="${index}" ${selected.includes(index) ? 'checked' : ''}><span class="option-label">${String.fromCharCode(65 + index)}</span><span>${esc(option)}</span><i class="option-selected-indicator" aria-hidden="true"></i></label>`).join('')}</div>${calculatorWidget()}<div class="workspace-question-actions"><button class="outline-btn" data-action="previous-question" ${!state.questionIndex ? 'disabled' : ''}>← Previous question</button><button class="danger-btn" data-action="submit-prompt">Submit exam session</button>${state.questionIndex === questions.length - 1 ? '<button class="primary-btn" data-action="submit-prompt">Review & submit →</button>' : '<button class="primary-btn" data-action="next-question">Next question →</button>'}</div></section></section><aside class="workspace-palette"><div class="palette-heading"><h2>▦ Question palette</h2><span>Total: ${questions.length} questions</span></div><div class="palette-legend"><span><i class="answered"></i> Answered (${answeredCount})</span><span><i class="flagged"></i> Flagged (${flaggedCount})</span><span><i class="unanswered"></i> Unanswered (${unansweredCount})</span></div><div class="question-grid">${questions.map((item, index) => `<button class="question-number ${index === state.questionIndex ? 'current' : ''} ${(attempt.answers?.[item.id] || []).length ? 'answered' : ''} ${(attempt.flagged || []).includes(item.id) ? 'flagged' : ''}" data-question-index="${index}" aria-label="Question ${index + 1}${(attempt.answers?.[item.id] || []).length ? ', answered' : ', unanswered'}${(attempt.flagged || []).includes(item.id) ? ', flagged' : ''}">${index + 1}</button>`).join('')}</div></aside></div><footer class="exam-workspace-footer">© ${new Date().getFullYear()} ${esc(value.displayName)} Assessment Centre</footer></main>`;
 }
 function lockedExamPage(exam, attempt) {
   const reason = String(attempt?.session?.lockedReason || 'integrity event').replaceAll('_', ' ');
@@ -827,6 +987,9 @@ function adminLoginPage() {
   sessionStorage.removeItem('algeAdminAuthNotice');
   return `<main class="admin-login-page"><section class="admin-login-visual"></section><section class="center-page"><section class="admin-auth-card login-pattern-card"><p class="auth-caption">Sign in to your account</p>${notice ? `<div class="login-success-alert" role="status"><span aria-hidden="true">✓</span>${esc(notice)}</div>` : ''}<form id="admin-login-form"><div class="alert" role="alert"></div><label class="form-field">Email Address<input name="email" type="email" autocomplete="username" value="${esc(rememberedEmail)}" placeholder="admin@example.com" required></label><label class="form-field">Password${passwordInput('admin-password', 'current-password', 'required')}</label><div class="auth-options"><label class="remember-control"><input name="remember" type="checkbox" ${rememberedEmail ? 'checked' : ''}> <span>Remember email</span></label><button class="auth-link" type="button" data-route="admin/forgot-password">Forgot password?</button></div><button class="primary-btn wide auth-submit">Sign In</button></form><p class="form-note">Don't have an account? <button class="text-button" data-route="admin/register">Create account</button></p></section></section></main>`;
 }
+function adminEmergencyRecoveryPage() {
+  return `<main class="admin-login-page"><section class="admin-login-visual"></section><section class="center-page"><section class="admin-auth-card reset-pattern-card emergency-recovery-card"><div class="reset-key-icon" aria-hidden="true">!</div><h1>Emergency Superadmin recovery</h1><p>Use one unused platform emergency recovery code to reset the Superadmin password when email and two-factor authentication are unavailable.</p><form id="emergency-recovery-form"><div class="alert" role="alert"></div><label class="form-field">Emergency recovery code<input name="code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="RECOVERY-ABCDE-FGHIJ-KLMNP-QRSTU" required></label><label class="form-field">New Superadmin password${passwordInput('emergency-recovery-password', 'new-password', 'minlength="12" required')}</label><label class="form-field">Confirm new password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required></label><button class="danger-btn wide auth-submit">Reset Superadmin access</button></form><div class="reset-explainer"><strong>Important</strong><span>A successful recovery disables 2FA, signs out all administrator sessions, and invalidates every code in the current emergency-code set.</span></div><p class="form-note"><button class="text-button" data-route="admin/login">Back to sign in</button></p></section></section></main>`;
+}
 function adminForgotPasswordPage() {
   return `<main class="admin-login-page"><section class="admin-login-visual"></section><section class="center-page"><section class="admin-auth-card reset-pattern-card"><div class="reset-key-icon" aria-hidden="true">⌕</div><h1>Reset Your Password</h1><p>Enter your email address and we'll send a six-digit code to reset your password.</p><form id="admin-password-reset-request-form"><div class="alert" role="alert"></div><label class="form-field">Email Address<input name="email" type="email" autocomplete="email" placeholder="admin@example.com" required></label><button class="primary-btn wide auth-submit">Send Reset Code</button></form><div class="reset-explainer"><strong>ⓘ What happens next?</strong><span>We'll verify that this is an active administrator account, then email a secure six-digit code. The code expires in 15 minutes.</span></div><p class="form-note">Remember your password? <button class="text-button" data-route="admin/login">Back to Sign In</button></p><p class="auth-muted-action">Superadmin recovery is handled by the protected system-owner process.</p></section></section></main>`;
 }
@@ -844,20 +1007,20 @@ function adminShell(content) {
   const page = parts()[1] || 'overview';
   const active = page === 'student-results' ? 'students' : page === 'review' ? 'results' : page;
   const approvalTitle = `Pending Approval <span class="nav-badge ${state.pendingApprovalCount ? '' : 'is-empty'}" data-approval-badge>${numeric(state.pendingApprovalCount)}</span>`;
-  const pageTitles = {overview: 'Overview', students: 'Students', exams: 'Exams', questions: 'Question bank', results: 'Results', audit: 'Audit Log', newsletter: 'Newsletter', roles: 'Roles', users: 'User Management', approvals: 'Pending Approval', backups: 'Database Backup', settings: 'Settings'};
-  const tabMap = new Map([['overview', 'Overview'], ['students', 'Students'], ['exams', 'Exams'], ['questions', 'Question bank'], ['results', 'Results'], ['audit', 'Audit log'], ['newsletter', 'Newsletter'], ['roles', 'Roles'], ['users', 'Users'], ['approvals', approvalTitle], ['backups', 'Database backup'], ['settings', 'Settings']].filter(([id]) => can(id)));
+  const pageTitles = {overview: 'Overview', students: 'Students', exams: 'Exams', questions: 'Question bank', algebra: 'Algebra assistant', results: 'Results', audit: 'Audit Log', newsletter: 'Newsletter', roles: 'Roles', users: 'User Management', approvals: 'Pending Approval', backups: 'Database Backup', 'emergency-codes': 'Emergency Codes', institutions: 'Institutions', settings: 'Settings'};
+  const tabMap = new Map([['overview', 'Overview'], ['students', 'Students'], ['exams', 'Exams'], ['questions', 'Question bank'], ['algebra', 'Algebra'], ['results', 'Results'], ['audit', 'Audit log'], ['newsletter', 'Newsletter'], ['roles', 'Roles'], ['users', 'Users'], ['approvals', approvalTitle], ['backups', 'Database backup'], ['emergency-codes', 'Emergency Codes'], ['institutions', 'Institutions'], ['settings', 'Settings']].filter(([id]) => can(id)));
   const navigationGroups = [
     ['Workspace', ['overview']],
-    ['Academic management', ['students', 'exams', 'questions', 'results']],
+    ['Academic management', ['students', 'exams', 'questions', 'algebra', 'results']],
     ['Communication', ['newsletter']],
     ['Administration', ['approvals', 'users', 'roles']],
-    ['System', ['audit', 'backups', 'settings']]
+    ['System', ['audit', 'backups', 'emergency-codes', 'institutions', 'settings']]
   ];
   const navigation = navigationGroups.map(([label, ids]) => {
     const items = ids.filter(id => tabMap.has(id)); if (!items.length) return '';
     return `<section class="admin-nav-section"><div class="nav-section-label">${esc(label)}</div>${items.map(id => `<button class="${active === id ? 'active' : ''}" ${active === id ? 'aria-current="page"' : ''} data-route="admin/${id}" title="${esc(pageTitles[id] || id)}"><span class="nav-icon">${sidebarIcon(id)}</span><span class="nav-text">${tabMap.get(id)}</span></button>`).join('')}</section>`;
   }).join('');
-  const name = state.adminUser?.name || 'Administrator', role = state.adminUser?.role || 'Superadmin';
+  const name = state.adminUser?.name || 'Administrator', role = state.adminUser?.role || 'Admin';
   const systemSettings = can('settings') ? '<button data-route="admin/settings">Settings</button>' : '';
   const pageTitle = pageTitles[active] || 'Admin workspace';
   return `<main class="admin-shell ${state.sidebarOpen ? '' : 'sidebar-collapsed'}"><aside class="admin-sidebar">${brand()}<nav class="admin-nav" aria-label="Admin workspace">${navigation}</nav><div class="admin-profile"><span class="avatar">${esc(candidateInitials(name))}</span><span><strong>${esc(name)}</strong><small>${esc(role)}</small></span></div></aside><header class="admin-topbar"><button class="sidebar-toggle" data-action="toggle-sidebar" aria-label="${state.sidebarOpen ? 'Collapse' : 'Expand'} sidebar" aria-expanded="${state.sidebarOpen}">☰</button><div class="admin-topbar-title"><span aria-hidden="true">⌂</span><strong>${esc(pageTitle)}</strong></div><div class="admin-topbar-actions">${themeToggle()}<div class="account-menu-wrap"><button class="account-menu-toggle" data-action="toggle-account-menu" aria-expanded="false"><span class="avatar">${esc(candidateInitials(name))}</span><span><strong>${esc(name)}</strong><small>${esc(role)}</small></span><b aria-hidden="true">⌄</b></button><div class="account-menu" hidden><div class="account-menu-identity"><strong>${esc(name)}</strong><span>${esc(state.adminUser?.email || '')}</span></div><button data-action="account-settings">Account Settings</button>${systemSettings}<hr><button class="account-logout" data-action="admin-logout">Logout</button></div></div></div></header><section class="admin-content">${content}</section></main>`;
@@ -869,6 +1032,48 @@ function emptyState(message, action = '') { return `<div class="empty-state"><p>
 function filterBar(name, placeholder, statuses = []) {
   const filter = state.filters[name];
   return `<form class="filter-bar" data-filter-form="${name}"><label class="filter-search"><span class="sr-only">Search ${name}</span><input type="search" name="q" value="${esc(filter.q)}" placeholder="${esc(placeholder)}"></label>${statuses.length ? `<label><span class="sr-only">Status</span><select class="select-field" name="status"><option value="">All statuses</option>${statuses.map(([value, label]) => `<option value="${value}" ${filter.status === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>` : ''}<button class="outline-btn">Search</button>${filter.q || filter.status ? `<button class="ghost-btn" type="button" data-filter-clear="${name}">Clear</button>` : ''}</form>`;
+}
+function adminLoginTwoFactorPage() {
+  return `<main class="admin-login-page"><section class="admin-login-visual"></section><section class="center-page"><section class="admin-auth-card login-pattern-card"><p class="auth-caption">Two-Factor Authentication</p><h1>Verify your sign-in</h1><p class="form-note">Open your authenticator app and enter the current six-digit code to finish signing in.</p><form id="admin-login-2fa-form"><div class="alert" role="alert"></div><label class="form-field">Authentication code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="123456" required autofocus></label><button class="primary-btn wide auth-submit">Verify and sign in</button></form><p class="form-note"><button class="text-button" data-route="admin/login">Back to sign in</button></p></section></section></main>`;
+}
+function algebraPage() {
+  const courses = [...(state.courses || [])].sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')));
+  const insight = state.algebraInsight;
+  const insightOutput = insight ? `<section class="panel algebra-output" style="margin-top:18px"><div class="panel-heading"><div><span class="section-kicker">Read-only analysis</span><h2>Latest performance insight</h2><p class="table-muted">Generated ${esc(fmtDate(insight.generatedAt))}. This is guidance for human review, not a grade or student action.</p></div><button class="outline-btn small-btn" data-action="clear-algebra-insight">Clear</button></div><p class="algebra-summary">${esc(insight.summary || '')}</p><div class="algebra-findings">${(insight.findings || []).map(item => `<article class="algebra-finding priority-${esc(item.priority || 'info')}"><h3>${esc(item.title)}</h3><p>${esc(item.detail)}</p><span>${esc(item.priority || 'info')}</span></article>`).join('')}</div>${(insight.caveats || []).length ? `<div class="algebra-caveats"><strong>Interpretation notes</strong><ul>${insight.caveats.map(item => `<li>${esc(item)}</li>`).join('')}</ul></div>` : ''}</section>` : '';
+  return `${adminHeader('Algebra', 'AI-assisted drafting and read-only performance insights for this institution only. Every question still requires human review and Draft-only import.')}<section class="panel algebra-safety-note"><strong>Human control stays required.</strong><span>Algebra cannot publish questions, change grades, send messages, or access another institution’s data. Do not enter student names, matric numbers, email addresses, phone numbers, or other personal data in free-text fields.</span></section><div class="algebra-grid"><section class="panel"><div class="panel-heading"><div><span class="section-kicker">Question drafting</span><h2>Draft questions for review</h2><p class="table-muted">Describe the assessment need. Algebra returns editable drafts only; nothing is saved or published automatically.</p></div></div><form id="algebra-question-draft-form"><div class="alert" role="alert"></div><div class="form-grid"><label class="form-field">Course<select class="select-field" name="courseId" required><option value="">Choose a course</option>${courses.map(course => `<option value="${esc(course.id)}">${esc(course.code)} --- ${esc(course.title)}</option>`).join('')}</select></label><label class="form-field">Topic<input name="topic" maxlength="190" placeholder="e.g. probability distributions" required></label><label class="form-field">Difficulty<select class="select-field" name="difficulty" required><option value="easy">Easy</option><option value="moderate" selected>Moderate</option><option value="challenging">Challenging</option></select></label><label class="form-field">Question count<input name="count" type="number" min="1" max="25" value="5" required></label><label class="form-field">Single-answer questions<input name="singleCount" type="number" min="0" max="25" value="5" required></label><label class="form-field">Multiple-answer questions<input name="multipleCount" type="number" min="0" max="25" value="0" required></label><label class="form-field wide">Additional instructions <small>(optional)</small><textarea name="brief" maxlength="2000" rows="3" placeholder="Learning outcomes, terminology to use, or exclusions."></textarea></label></div><p class="table-muted">The single and multiple counts must add up to the requested total (maximum 25).</p><button class="primary-btn">Generate reviewable Draft questions</button></form></section><section class="panel"><div class="panel-heading"><div><span class="section-kicker">Performance insights</span><h2>Ask about this institution’s results</h2><p class="table-muted">Algebra receives anonymised aggregate statistics only — never student identifiers, credentials, IP addresses, or cross-tenant data.</p></div></div><form id="algebra-performance-insight-form"><div class="alert" role="alert"></div><label class="form-field">Question<textarea name="question" maxlength="2000" rows="7" required placeholder="For example: Which assessment areas should the academic team review first, based on score distribution and most-missed questions?"></textarea></label><button class="outline-btn">Generate read-only insight</button></form></section></div>${insightOutput}`;
+}
+// Stage 2 replaces the compact Stage 1 workspace with grouped, explicitly
+// human-controlled drafting and review tools.  The earlier declaration is
+// deliberately overridden here to keep this change isolated from Stage 1.
+function algebraPage() {
+  const courses = [...(state.courses || [])].sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')));
+  const components = courses.flatMap(course => (course.components || []).map(component => ({...component, courseCode: course.code})));
+  const calculated = (state.algebraResults || []).filter(item => item.calculated && item.studentId && item.sessionId && item.semesterId);
+  const today = new Date().toISOString().slice(0, 10);
+  const weekAgo = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+  const findingCards = items => (items || []).map(item => `<article class="algebra-finding"><h3>${esc(item.title || '')}</h3><p>${esc(item.detail || '')}</p>${item.priority ? `<span>${esc(item.priority)}</span>` : ''}</article>`).join('');
+  const insight = state.algebraInsight;
+  const insightOutput = insight ? `<section class="panel algebra-output"><div class="panel-heading"><div><span class="section-kicker">Read-only analysis</span><h2>Latest performance insight</h2></div><button class="outline-btn small-btn" data-action="clear-algebra-insight">Clear</button></div><p class="algebra-summary">${esc(insight.summary || '')}</p><div class="algebra-findings">${findingCards(insight.findings)}</div>${(insight.caveats || []).length ? `<div class="algebra-caveats"><strong>Interpretation notes</strong><ul>${insight.caveats.map(item => `<li>${esc(item)}</li>`).join('')}</ul></div>` : ''}</section>` : '';
+  const setup = state.algebraSetupSuggestion;
+  const setupOutput = setup ? `<section class="panel algebra-output"><div class="panel-heading"><div><span class="section-kicker">Suggestion only</span><h2>${esc(setup.formType)} form suggestion</h2></div><button class="outline-btn small-btn" data-action="use-algebra-setup">Use to fill form</button></div><p class="algebra-summary">${esc(setup.summary || '')}</p><pre class="algebra-data-preview">${esc(JSON.stringify(setup.fields || {}, null, 2))}</pre>${(setup.notes || []).length ? `<div class="algebra-caveats"><strong>Review before saving</strong><ul>${setup.notes.map(note => `<li>${esc(note)}</li>`).join('')}</ul></div>` : ''}</section>` : '';
+  const digest = state.algebraAuditDigest;
+  const digestOutput = digest ? `<section class="panel algebra-output"><div class="panel-heading"><div><span class="section-kicker">Read-only audit digest</span><h2>${esc(digest.from)} to ${esc(digest.to)}</h2></div></div><p class="algebra-summary">${esc(digest.summary || '')}</p><div class="algebra-findings">${findingCards(digest.highlights)}</div>${(digest.caveats || []).length ? `<div class="algebra-caveats"><strong>Interpretation notes</strong><ul>${digest.caveats.map(note => `<li>${esc(note)}</li>`).join('')}</ul></div>` : ''}</section>` : '';
+  const anomaly = state.algebraAnomalyFlags;
+  const anomalyOutput = anomaly ? `<section class="panel algebra-output"><div class="panel-heading"><div><span class="section-kicker">Review recommended only</span><h2>Answer-pattern review signals</h2></div></div><p class="algebra-caveats"><strong>${esc(anomaly.notice || '')}</strong></p>${(anomaly.flags || []).length ? `<div class="algebra-findings">${(anomaly.flags || []).map(flag => `<article class="algebra-finding priority-review"><h3>${esc(flag.title)}</h3><p>${esc(flag.detail)}</p><span>${numeric(flag.responseCount)} of ${numeric(flag.sampleSize)} responses</span></article>`).join('')}</div>` : '<p class="table-muted">No question-level response concentration reached the minimum review threshold.</p>'}</section>` : '';
+  const communication = state.algebraCommunicationDraft;
+  const communicationOutput = communication ? `<section class="panel algebra-output"><div class="panel-heading"><div><span class="section-kicker">Draft only</span><h2>${esc(communication.subject || '')}</h2></div><button class="outline-btn small-btn" data-action="use-algebra-newsletter">Review in newsletter composer</button></div><p class="algebra-communication-copy">${esc(communication.content || '')}</p><div class="algebra-caveats"><strong>Human action required</strong><ul>${(communication.reviewNotes || []).map(note => `<li>${esc(note)}</li>`).join('')}</ul></div></section>` : '';
+  const report = state.algebraResultDraft;
+  const reportOutput = report ? `<section class="panel algebra-output"><div class="panel-heading"><div><span class="section-kicker">Printable draft only</span><h2>${esc(report.heading || '')}</h2></div><button class="outline-btn small-btn" data-action="open-algebra-result-report">Open result sheet</button></div><p class="algebra-summary">${esc(report.summary || '')}</p><ul class="algebra-caveats">${(report.highlights || []).map(item => `<li>${esc(item)}</li>`).join('')}</ul><p class="table-muted">${esc(report.reviewNote || '')}</p></section>` : '';
+  return `${adminHeader('Algebra', 'AI-assisted drafting and read-only analysis for this institution only. Nothing is published, sent, saved, graded, or enforced without an administrator action.')}<section class="panel algebra-safety-note"><strong>Human control stays required.</strong><span>Algebra cannot publish questions, change grades, send messages, alter settings, accuse students, restrict students, or access another institution’s data.</span></section><div class="algebra-grid"><section class="panel"><div class="panel-heading"><div><span class="section-kicker">Question drafting</span><h2>Draft questions for review</h2><p class="table-muted">Every generated question goes through the existing mandatory review screen and is imported only as Draft.</p></div></div><form id="algebra-question-draft-form"><div class="alert" role="alert"></div><div class="form-grid"><label class="form-field">Course<select class="select-field" name="courseId" required><option value="">Choose a course</option>${courses.map(course => `<option value="${esc(course.id)}">${esc(course.code)} — ${esc(course.title)}</option>`).join('')}</select></label><label class="form-field">Topic<input name="topic" maxlength="190" required></label><label class="form-field">Difficulty<select class="select-field" name="difficulty"><option value="easy">Easy</option><option value="moderate" selected>Moderate</option><option value="challenging">Challenging</option></select></label><label class="form-field">Question count<input name="count" type="number" min="1" max="25" value="5" required></label><label class="form-field">Single-answer questions<input name="singleCount" type="number" min="0" max="25" value="5" required></label><label class="form-field">Multiple-answer questions<input name="multipleCount" type="number" min="0" max="25" value="0" required></label><label class="form-field wide">Additional instructions <small>(optional)</small><textarea name="brief" maxlength="2000" rows="3"></textarea></label></div><button class="primary-btn">Generate reviewable Draft questions</button></form></section><section class="panel"><div class="panel-heading"><div><span class="section-kicker">Performance insights</span><h2>Ask about institution results</h2><p class="table-muted">Only anonymised aggregate statistics are sent for analysis.</p></div></div><form id="algebra-performance-insight-form"><div class="alert" role="alert"></div><label class="form-field">Question<textarea name="question" maxlength="2000" rows="6" required placeholder="Which assessment areas should the academic team review first?"></textarea></label><button class="outline-btn">Generate read-only insight</button></form></section></div>${insightOutput}<section class="algebra-section-heading"><span class="section-kicker">Stage 2 assistance</span><h2>Prepare, review, and communicate</h2><p class="table-muted">Suggestions never submit an existing form. Drafts never send a message. Signals never trigger action.</p></section><div class="algebra-grid"><section class="panel"><div class="panel-heading"><div><span class="section-kicker">Setup assistant</span><h2>Suggest form values</h2></div></div><form id="algebra-setup-suggestion-form"><div class="alert" role="alert"></div><label class="form-field">Form<select class="select-field" name="formType"><option value="course">Course and components</option><option value="component">One component</option><option value="grading_scale">Grading scale</option></select></label><label class="form-field">Component to fill <small>(used only for component suggestions)</small><select class="select-field" name="componentId"><option value="">Choose after generating</option>${components.map(item => `<option value="${esc(item.id)}">${esc(item.courseCode)} — ${esc(item.componentLabel || item.component)}</option>`).join('')}</select></label><label class="form-field">What would you like to set up?<textarea name="brief" maxlength="2000" rows="5" required placeholder="Describe the course, component window, marking approach, or grading policy."></textarea></label><button class="outline-btn">Generate suggestions</button></form></section><section class="panel"><div class="panel-heading"><div><span class="section-kicker">Audit digest</span><h2>Summarise activity</h2></div></div><form id="algebra-audit-digest-form"><div class="alert" role="alert"></div><div class="form-grid"><label class="form-field">From<input type="date" name="from" value="${weekAgo}" required></label><label class="form-field">To<input type="date" name="to" value="${today}" required></label></div><p class="table-muted">Algebra receives action and outcome counts, not identities, IPs, user agents, or raw change details.</p><button class="outline-btn">Generate audit digest</button></form></section></div>${setupOutput}${digestOutput}<div class="algebra-grid"><section class="panel"><div class="panel-heading"><div><span class="section-kicker">Review signals</span><h2>Check answer patterns</h2></div></div><p class="table-muted">Finds only concentrated incorrect responses at question level. It never identifies a student or takes action.</p><form id="algebra-anomaly-flags-form"><div class="alert" role="alert"></div><button class="outline-btn">Generate review signals</button></form></section><section class="panel"><div class="panel-heading"><div><span class="section-kicker">Communication drafting</span><h2>Draft an announcement</h2></div></div><form id="algebra-communication-draft-form"><div class="alert" role="alert"></div><label class="form-field">Purpose<input name="purpose" maxlength="240" required placeholder="e.g. assessment timetable reminder"></label><label class="form-field">Audience<input name="audience" maxlength="240" required placeholder="e.g. registered 200-level students"></label><label class="form-field">Key points<textarea name="keyPoints" maxlength="2000" rows="4" required></textarea></label><button class="outline-btn">Draft announcement</button></form></section></div>${anomalyOutput}${communicationOutput}<section class="panel algebra-report-panel"><div class="panel-heading"><div><span class="section-kicker">Result-sheet narrative</span><h2>Draft a printable report note</h2><p class="table-muted">Uses an existing calculated result. It never recalculates, changes, or saves grade data.</p></div></div><form id="algebra-result-report-form"><div class="alert" role="alert"></div><label class="form-field">Calculated result<select class="select-field" name="resultKey" required><option value="">Choose a calculated result</option>${calculated.map(item => `<option value="${esc([item.studentId,item.sessionId,item.semesterId].join('|'))}">${esc(item.studentName)} — ${esc(item.matricNumber)} — ${esc(item.sessionLabel)} / ${esc(item.semesterLabel)}</option>`).join('')}</select></label><button class="outline-btn" ${calculated.length ? '' : 'disabled'}>Draft result-sheet note</button></form></section>${reportOutput}`;
+}
+
+function algebraDraftReviewPage() {
+  const review = state.algebraDraftReview;
+  const course = state.courses.find(item => item.id === review?.courseId);
+  if (!review || !course) return `${adminHeader('Algebra question review', 'The review draft is unavailable. Generate a new set of questions.')}<section class="panel">${emptyState('No Algebra draft is ready for review.', '<button class="primary-btn" data-route="admin/algebra">Open Algebra</button>')}</section>`;
+  const items = review.items || []; const low = items.filter(item => item.confidence !== 'high').length;
+  const cards = items.map((item, index) => `<article class="pdf-review-question ${item.confidence !== 'high' ? 'low-confidence' : ''}" data-algebra-draft-item><header><label class="pdf-review-select"><input type="checkbox" data-algebra-draft-include checked> Import question ${index + 1}</label><span class="pdf-confidence ${item.confidence === 'high' ? 'high' : 'low'}">${item.confidence === 'high' ? 'High confidence' : 'Review answer key'}</span></header><label class="form-field">Question text<textarea data-algebra-draft-question rows="3" required>${esc(item.questionText || '')}</textarea></label><div class="pdf-review-options">${(item.options || []).map((option, optionIndex) => `<label><span>Option ${String.fromCharCode(65 + optionIndex)}</span><input data-algebra-draft-option value="${esc(option)}" required><b><input type="checkbox" data-algebra-draft-correct value="${optionIndex}" ${(item.correctOptionIndexes || []).includes(optionIndex) ? 'checked' : ''}> Correct</b></label>`).join('')}</div><p class="pdf-answer-mode" data-algebra-answer-mode>${(item.correctOptionIndexes || []).length > 1 ? 'Multiple answers selected' : 'Single answer selected'}</p></article>`).join('');
+  return `${adminHeader(`${esc(course.code)} Algebra draft review`, 'Review and edit every generated question before saving any Drafts.', '<button class="outline-btn" data-action="discard-algebra-draft">Discard review</button>')}<section class="panel pdf-review-overview"><div><span class="section-kicker">Algebra AI-assisted drafting</span><h2>Mandatory human review</h2><p>Algebra cannot publish questions. Low-confidence items appear first; verify wording, options, and every answer key.</p></div><dl><div><dt>Generated</dt><dd>${numeric(items.length)}</dd></div><div><dt>Review answer key</dt><dd>${numeric(low)}</dd></div><div><dt>Target</dt><dd>Draft only</dd></div></dl></section><form id="algebra-draft-review-form" data-course-id="${esc(course.id)}" data-request-id="${esc(review.requestId)}"><p class="pdf-import-honesty"><strong>All selected questions will be saved as Draft.</strong> Publishing to Test or Exam remains a separate human action in the Question Bank.</p><div class="pdf-review-list">${cards}</div><div class="modal-actions pdf-review-actions"><button class="outline-btn" type="button" data-action="discard-algebra-draft">Discard review</button><button class="primary-btn">Import reviewed questions as Draft</button></div></form>`;
 }
 function questionDirectoryFilterBar() {
   const filter = state.filters.questionDirectory;
@@ -894,6 +1099,7 @@ function adminPage(route) {
   if (page === 'students') return studentsPage();
   if (page === 'exams') return examsPage();
   if (page === 'questions') return questionsPage(route[2]);
+  if (page === 'algebra') return route[2] === 'review' ? algebraDraftReviewPage() : algebraPage();
   if (page === 'results') return resultsPage();
   if (page === 'review') return reviewPage();
   if (page === 'student-results') return studentResultsPage();
@@ -903,7 +1109,9 @@ function adminPage(route) {
   if (page === 'users') return usersPage();
   if (page === 'approvals') return approvalsPage();
   if (page === 'backups') return backupPage();
-  if (page === 'force-password') return `${adminHeader('Secure your Superadmin account', 'The seeded deployment password must be replaced before administrative access can continue.')}<section class="panel"><form id="account-password-form"><div class="alert" role="alert"></div><label class="form-field">Current seeded password<input name="currentPassword" type="password" autocomplete="current-password" required></label><label class="form-field">New password<input name="newPassword" type="password" autocomplete="new-password" minlength="12" required></label><label class="form-field">Confirm new password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required></label><div class="modal-actions"><button class="primary-btn">Set secure password</button></div></form></section>`;
+  if (page === 'emergency-codes') return emergencyCodesPage();
+  if (page === 'institutions' && isPlatformSuperAdmin()) return institutionsPage();
+  if (page === 'force-password') return `${adminHeader('Secure your administrator account', 'Your initial temporary password must be replaced before administrative access can continue.')}<section class="panel"><form id="account-password-form"><div class="alert" role="alert"></div><label class="form-field">Current temporary password<input name="currentPassword" type="password" autocomplete="current-password" required></label><label class="form-field">New password<input name="newPassword" type="password" autocomplete="new-password" minlength="12" required></label><label class="form-field">Confirm new password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required></label><div class="modal-actions"><button class="primary-btn">Set secure password</button></div></form></section>`;
   if (page === 'settings') return settingsPage();
   return `${adminHeader('Page not found', 'Choose a page from the navigation.')}<button class="primary-btn" data-route="admin/overview">Go to dashboard</button>`;
 }
@@ -922,6 +1130,55 @@ function backupPage() {
   const next = backup.nextRunAt ? fmtDate(backup.nextRunAt) : 'Automatic backups are disabled';
   return `${adminHeader('Database Backup', 'Create, protect, and recover the complete CBT system record.', '<button class="primary-btn" data-action="create-backup">Create Backup Now</button>')}<section class="panel backup-overview"><div><span class="section-kicker">Secure backup control</span><h2>System snapshots</h2><p>Backups include students, courses, questions, academic periods, grading settings, assessment sessions, submissions, results, audit events, and administrator account details. Password hashes are never exported.</p></div><div class="backup-next-run"><span>Next scheduled run</span><strong>${esc(next)}</strong></div></section><section class="panel" style="margin-top:18px"><div class="panel-heading"><div><h2>Available backups</h2><p class="table-muted">${numeric(items.length)} file${items.length === 1 ? '' : 's'} stored in ${esc(backup.directory || 'database/backups/')}.</p></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Filename</th><th>Created</th><th>Size</th><th>Actions</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No backups have been created yet.</td></tr>'}</tbody></table></div></section><section class="panel backup-settings" style="margin-top:18px"><div class="panel-heading"><div><h2>Automatic backup schedule</h2><p class="table-muted">The server creates the next daily backup when it receives a request at or after the configured server time.</p></div></div><form id="backup-settings-form"><label class="checkbox-field"><input type="checkbox" name="enabled" ${settings.enabled !== false ? 'checked' : ''}> Enable daily automatic backup</label><div class="form-grid"><label class="form-field">Daily server time<input name="time" type="time" value="${esc(settings.time || '02:00')}" required></label><label class="form-field">Maximum backups to keep<input name="retentionCount" type="number" min="1" max="365" value="${numeric(settings.retentionCount, 14)}" required></label></div><p class="table-muted">Oldest files are deleted automatically after the retention limit is reached.</p><div class="modal-actions"><button class="primary-btn">Save backup settings</button></div></form></section><section class="panel backup-restore-panel" style="margin-top:18px"><div class="panel-heading"><div><h2>Restore from backup</h2><p class="table-muted">Restore replaces the current academic and system data. A fresh safety backup is created immediately before any restore.</p></div><button class="danger-btn" data-action="restore-backup">Restore backup</button></div><p class="backup-warning">Sensitive student data is contained in every backup. Store downloaded files securely and keep an off-site copy. Current administrator credentials are retained during a restore because password hashes are intentionally excluded from exports.</p></section><section class="panel backup-information" style="margin-top:18px"><h2>Important information</h2><ul><li>Server copies are stored in <code>database/backups/</code>.</li><li>Download backups regularly and store them in a secure off-site location.</li><li>Retention automatically removes the oldest files after the configured limit.</li></ul></section>`;
 }
+function institutionsPage() {
+  const rows = (state.institutions || []).map(item => `<tr><td><div class="institution-name-cell"><img src="${esc(rootAsset(item.logoPath))}" alt="" aria-hidden="true"><strong>${esc(item.displayName || item.name)}</strong></div></td><td><code>/i/${esc(item.slug)}/</code></td><td>${esc(item.adminEmail || '—')}</td><td><span class="status-pill ${item.active ? '' : 'status-muted'}">${item.active ? 'Active' : 'Suspended'}</span></td><td>${esc(fmtDate(item.createdAt))}</td><td class="table-actions"><a class="outline-btn small-btn" href="${esc(APP_ROOT)}/i/${esc(item.slug)}/admin/settings">Manage settings</a><button class="outline-btn small-btn" data-action="edit-institution-branding" data-id="${esc(item.id)}">Edit branding</button><button class="${item.active ? 'danger-btn' : 'primary-btn'} small-btn" data-action="toggle-institution-status" data-id="${esc(item.id)}" data-active="${item.active ? '1' : '0'}">${item.active ? 'Suspend' : 'Reactivate'}</button><button class="danger-btn small-btn" data-action="delete-institution" data-id="${esc(item.id)}">Delete institution</button></td></tr>`).join('');
+  return `${adminHeader('Institutions', 'Create and oversee isolated institution workspaces. Tenant Admins remain restricted to their own institution.', '<button class="primary-btn" data-action="new-institution">+ Create institution</button>')}<section class="panel institution-provisioning-note"><strong>Platform Super Admin only</strong><p>Creation seeds the tenant’s roles, grading scale, settings, empty academic session, branded portal, and one Admin account. The initial temporary password is shown once and must be changed on first sign-in.</p></section><section class="panel table-panel" style="margin-top:18px"><div class="panel-heading"><div><h2>Provisioned institutions</h2><p class="table-muted">${numeric((state.institutions || []).length)} isolated institution workspace${numeric((state.institutions || []).length) === 1 ? '' : 's'}.</p></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Institution</th><th>Path</th><th>Initial Admin</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No institutions are available.</td></tr>'}</tbody></table></div></section>`;
+}
+function accentRgb(hex) { const value = String(hex || '').replace('#', ''); return [parseInt(value.slice(0, 2), 16), parseInt(value.slice(2, 4), 16), parseInt(value.slice(4, 6), 16)]; }
+function accentLuminance(hex) { return accentRgb(hex).map(value => { const channel = value / 255; return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4; }).reduce((total, value, index) => total + value * [.2126, .7152, .0722][index], 0); }
+function accentContrast(foreground, background) { const a = accentLuminance(foreground), b = accentLuminance(background); return (Math.max(a, b) + .05) / (Math.min(a, b) + .05); }
+function accentMix(source, target, amount) { const from = accentRgb(source), to = accentRgb(target); return `#${from.map((value, index) => Math.round(value + (to[index] - value) * amount).toString(16).padStart(2, '0')).join('')}`; }
+function accessibleAccent(source, background, toward) { if (accentContrast(source, background) >= 4.5) return source; for (let step = 1; step <= 100; step += 1) { const value = accentMix(source, toward, step / 100); if (accentContrast(value, background) >= 4.5) return value; } return toward; }
+function accentProfile(value) {
+  const source = /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value).toLowerCase() : '#16774d';
+  const lightRaw = accentContrast(source, '#ffffff'), darkRaw = accentContrast(source, '#101714');
+  return {source, lightRaw, darkRaw, adjusted: lightRaw < 4.5 || darkRaw < 4.5, light: accessibleAccent(source, '#ffffff', '#000000'), dark: accessibleAccent(source, '#101714', '#ffffff')};
+}
+function accentPreview(profile, initial = '#16774d') {
+  const acknowledgement = profile.adjusted && profile.source !== String(initial).toLowerCase();
+  return `<section class="accent-preview" data-accent-preview data-initial-accent="${esc(initial)}"><div class="accent-preview-heading"><strong>Accessible accent preview</strong><span class="${profile.adjusted ? 'status-warning' : 'status-pill'}">${profile.adjusted ? 'Adjustment needed' : 'Passes directly'}</span></div><p class="table-muted">Minimum contrast is 4.5:1. Light-interface controls use the left resolved colour; dark-interface controls use the right one.</p><div class="accent-swatch-grid"><div><span>You selected</span><b><i style="--swatch:${esc(profile.source)}"></i>${esc(profile.source)}</b></div><div><span>Will be displayed as</span><b><i style="--swatch:${esc(profile.light)}"></i>Light ${esc(profile.light)}</b><b><i style="--swatch:${esc(profile.dark)}"></i>Dark ${esc(profile.dark)}</b></div></div><p class="${profile.adjusted ? 'accent-warning' : 'table-muted'}">Raw contrast: ${profile.lightRaw.toFixed(2)}:1 on light and ${profile.darkRaw.toFixed(2)}:1 on dark. ${profile.adjusted ? 'The saved variants above are adjusted to meet the 4.5:1 minimum.' : 'No colour adjustment is required.'}</p>${acknowledgement ? '<label class="checkbox-field accent-ack"><input name="accentAcknowledged" type="checkbox" value="1" required> I have reviewed the selected and resolved colours and approve the accessible adjustment.</label>' : '<input type="hidden" name="accentAcknowledged" value="1">'}</section>`;
+}
+function refreshAccentPreview(form) {
+  const input = form?.querySelector('[name="accentColor"]'), target = form?.querySelector('[data-accent-preview]');
+  if (!input || !target) return;
+  const replacement = document.createElement('div'); replacement.innerHTML = accentPreview(accentProfile(input.value), target.dataset.initialAccent || '#16774d');
+  target.replaceWith(replacement.firstElementChild);
+}
+function institutionProvisionForm() {
+  const profile = accentProfile('#16774d');
+  openModal('Create institution', `<form id="platform-institution-form" enctype="multipart/form-data"><div class="alert" role="alert"></div><p class="table-muted">All fields are required. The uploaded logo is used on the student portal, sign-in pages, admin header, and printable result sheet.</p><div class="form-grid"><label class="form-field wide">Institution name<input name="name" autocomplete="organization" maxlength="190" required autofocus></label><label class="form-field">Initial Admin email<input name="adminEmail" type="email" autocomplete="email" maxlength="254" required></label><label class="form-field">Subdomain / path slug<input name="slug" autocomplete="off" pattern="[a-z0-9](?:[a-z0-9-]{0,118}[a-z0-9])?" maxlength="120" placeholder="example-college" required><small>Lowercase letters, numbers, and hyphens. The portal path will be <code>/i/your-slug/</code>.</small></label><label class="form-field wide">Institution logo<input name="logo" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" required><small>PNG, JPEG, or WebP; up to 2 MB.</small></label><label class="form-field">Primary accent colour<input name="accentColor" type="color" value="#16774d" required></label><label class="form-field">Navigation label <small>(optional)</small><input name="navLabel" maxlength="190" placeholder="Defaults to Institution name CBT"></label><label class="form-field wide">Footer line one <small>(optional)</small><textarea name="footerPrimary" maxlength="400" placeholder="Defaults to the institution certification line"></textarea></label><label class="form-field wide">Footer line two <small>(optional)</small><textarea name="footerSecondary" maxlength="400" placeholder="Defaults to the assessment service line"></textarea></label><label class="form-field wide">Footer legal text <small>(optional)</small><textarea name="footerLegal" maxlength="400" placeholder="Defaults to © {year} Institution name. All rights reserved."></textarea></label></div>${accentPreview(profile)}<div class="modal-actions"><button class="outline-btn" type="button" data-action="close-modal">Cancel</button><button class="primary-btn" type="submit">Create institution</button></div></form>`);
+}
+function institutionBrandingForm(item) {
+  const brand = item?.branding || {}, accent = brand.accentSourceColor || '#16774d', profile = accentProfile(accent);
+  openModal(`Edit branding — ${item.displayName || item.name}`, `<form id="platform-branding-form" enctype="multipart/form-data"><input name="operation" type="hidden" value="update-branding"><input name="institutionId" type="hidden" value="${esc(item.id)}"><div class="alert" role="alert"></div><p class="form-help">Branding takes effect immediately on this institution’s student portal, login pages, admin header, and printable result sheet. Academic and student records are not changed.</p><div class="form-grid"><label class="form-field">Institution name<input name="name" maxlength="190" value="${esc(item.name)}" required></label><label class="form-field">Display name<input name="displayName" maxlength="190" value="${esc(brand.displayName || item.name)}" required></label><label class="form-field">Portal title<input name="portalTitle" maxlength="190" value="${esc(brand.portalTitle || '')}" required></label><label class="form-field">Navigation label<input name="navLabel" maxlength="190" value="${esc(brand.navLabel || '')}" required></label><label class="form-field wide">Replace logo <small>(optional)</small><input name="logo" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"><small>PNG, JPEG, or WebP; up to 2 MB. Leave empty to keep the current logo.</small></label><label class="form-field">Primary accent colour<input name="accentColor" type="color" value="${esc(accent)}" required></label><label class="form-field">Assessment label<input name="assessmentLabel" maxlength="190" value="${esc(brand.assessmentLabel || '')}" required></label><label class="form-field">Result sheet title<input name="resultSheetTitle" maxlength="190" value="${esc(brand.resultSheetTitle || '')}" required></label><label class="form-field">Newsletter sender name<input name="newsletterSenderName" maxlength="190" value="${esc(brand.newsletterSenderName || '')}" required></label><label class="form-field">Support email<input name="supportEmail" type="email" maxlength="254" value="${esc(brand.supportEmail || '')}"></label><label class="form-field wide">Footer line one<textarea name="footerPrimary" maxlength="400" required>${esc(brand.footerPrimary || '')}</textarea></label><label class="form-field wide">Footer line two<textarea name="footerSecondary" maxlength="400" required>${esc(brand.footerSecondary || '')}</textarea></label><label class="form-field wide">Footer legal text<textarea name="footerLegal" maxlength="400" required>${esc(brand.footerLegal || '')}</textarea><small>Use <code>{year}</code> for the current year.</small></label></div>${accentPreview(profile, accent)}<div class="modal-actions"><button class="outline-btn" type="button" data-action="close-modal">Cancel</button><button class="primary-btn" type="submit">Save branding</button></div></form>`);
+}
+function institutionSoftDeleteForm(item) {
+  openModal(`Delete institution — ${item.displayName || item.name}`, `<form id="platform-institution-delete-form" data-institution-id="${esc(item.id)}" data-confirm-name="${esc(item.name)}" data-confirm-slug="${esc(item.slug)}"><div class="alert" role="alert"></div><p class="backup-warning"><strong>This is a guarded soft deletion, not a permanent purge.</strong> The institution will disappear from normal views and all student and administrator access will be blocked. Its academic records, audit history, and a fresh safety backup remain recoverable for at least 30 days.</p><label class="form-field">Why is this institution being deleted?<textarea name="reason" minlength="15" maxlength="2000" required placeholder="Give the operational reason for this deletion."></textarea><small>At least 15 characters. This reason is recorded in the platform audit trail.</small></label><label class="form-field">Type <strong>${esc(item.name)}</strong> or <strong>${esc(item.slug)}</strong> to confirm<input name="confirmation" autocomplete="off" required></label><div class="modal-actions"><button class="outline-btn" type="button" data-action="close-modal">Cancel</button><button class="danger-btn" type="submit" disabled data-institution-delete-submit>Soft-delete institution</button></div></form>`, {closeable: false});
+}
+function showProvisionedInstitution(response) {
+  const institution = response.institution || {}, admin = response.initialAdmin || {};
+  openModal('Institution created', `<div class="provisioned-institution"><p><strong>${esc(institution.name)}</strong> is ready at <code>/i/${esc(institution.slug)}/</code>.</p><p>The tenant Admin must change this temporary password on first sign-in. It is shown only now—copy it and deliver it through a secure channel.</p><div class="instruction-box"><span>Initial Admin: <strong>${esc(admin.email)}</strong></span><strong class="generated-password">${esc(admin.temporaryPassword)}</strong></div><div class="modal-actions"><button class="outline-btn" data-action="copy-provisioned-password" data-password="${esc(admin.temporaryPassword)}">Copy temporary password</button><button class="primary-btn" data-action="close-modal">I stored it securely</button></div></div>`);
+}
+function emergencyCodesPage() {
+  const summary = state.emergencyCodes || {}, active = Boolean(summary.active), remaining = numeric(summary.remaining);
+  const generated = summary.generatedAt ? fmtDate(summary.generatedAt) : 'Never';
+  const action = active ? 'Regenerate emergency codes' : 'Generate emergency codes';
+  return `${adminHeader('Emergency Codes', 'Last-resort institution Admin recovery when email and two-factor authentication are unavailable.')}<section class="panel emergency-codes-panel"><div class="emergency-warning"><strong>Admin only</strong><span>Emergency codes can reset this institution Admin password and remove 2FA. Store them offline in a secure location.</span></div><div class="emergency-code-status"><div><span class="section-kicker">Recovery status</span><h2>${active ? 'Active emergency-code set' : 'No active emergency-code set'}</h2><p>${active ? `${remaining} unused one-time code${remaining === 1 ? '' : 's'} remain. Generated ${esc(generated)}.` : 'Generate a set before you need it. Codes are displayed only once and are never stored in readable form.'}</p></div><span class="status-pill ${active ? '' : 'status-muted'}">${active ? `${remaining} available` : 'Not configured'}</span></div><hr><ol class="emergency-code-rules"><li>Generate the codes while signed in, then copy or write them down immediately.</li><li>Keep them offline---not in email, chat, or a browser password manager.</li><li>Using one code signs out every administrator, disables 2FA, resets the institution Admin password, and invalidates the entire set.</li></ol><div class="modal-actions"><button class="danger-btn" data-action="generate-emergency-codes">${action}</button></div></section>`;
+}
+function revealEmergencyCodes(codes) {
+  const list = (codes || []).map(code => `<li><code>${esc(code)}</code></li>`).join('');
+  openModal('Store your emergency codes', `<div class="emergency-code-reveal"><p><strong>These codes are shown only once.</strong> Copy or write every code down and keep them offline. Each code works once; using any one invalidates the whole set.</p><ol>${list}</ol><p class="form-help">Recovery page: <code>/admin/emergency-recovery</code></p><div class="modal-actions"><button class="outline-btn" data-action="copy-emergency-codes" data-codes="${esc((codes || []).join('\n'))}">Copy codes</button><button class="primary-btn" data-action="close-modal">I stored these codes</button></div></div>`);
+}
 function dashboardPage() {
   const data = state.dashboard || {}, stats = data.stats || {};
   const distributions = data.scoreDistribution || [];
@@ -937,7 +1194,16 @@ function dashboardPage() {
     return `<div class="outcome-select-row ${selected ? 'selected' : ''}"><label class="outcome-select-control"><input type="checkbox" data-dashboard-outcome-select value="${esc(item.examId)}" ${selected ? 'checked' : ''} aria-label="Select ${esc(item.code)} ${esc(item.title)}"><span aria-hidden="true"></span></label><div class="mini-row"><div><strong>${esc(item.code)} · ${esc(item.title)}</strong><span>${component ? `${component.slice(3)} · ` : ''}${numeric(item.attempts)} submission${numeric(item.attempts) === 1 ? '' : 's'} · ${numeric(item.averageScore)}% average</span></div><div class="outcome-summary"><span>${numeric(item.passed)} pass / ${numeric(item.failed)} fail</span><div class="progress"><i style="width:${Math.max(0, Math.min(100, numeric(item.passRate)))}%"></i></div></div></div></div>`;
   }).join('')}</div>` : emptyState('No visible course outcomes. Restore hidden rows if you want them shown again.');
   const outcomeActions = `<div class="dashboard-outcome-actions"><span class="table-muted">Select rows to hide only from this dashboard.</span><div><button class="danger-btn small-btn" data-action="hide-dashboard-outcomes" ${selectedCount ? '' : 'disabled'}>Hide selected (${selectedCount})</button>${hiddenOutcomes.length ? `<button class="outline-btn small-btn" data-action="restore-dashboard-outcomes">Restore hidden (${hiddenOutcomes.length})</button>` : ''}</div></div>`;
-  return `${adminHeader('Dashboard', 'Current assessment activity and outcomes.', '<button class="primary-btn" data-route="admin/students">Register student</button>')}<section class="stat-grid">${statCard('Registered students', numeric(stats.students))}${statCard('Active assessments', numeric(stats.activeExams))}${statCard('Completed today', numeric(stats.completedToday))}${statCard('Average score', `${numeric(stats.averageScore)}%`)}</section><div class="admin-grid"><section class="panel"><div class="panel-heading"><h2>Score distribution</h2><span class="chart-caption">Students per score band</span></div>${scoreChart}</section><section class="panel dashboard-outcomes-panel"><div class="panel-heading"><div><h2>Course outcomes</h2><span class="table-muted">Visible assessment components</span></div></div>${outcomeActions}${outcomeList}${pager('outcomes')}</section></div><section class="panel table-panel"><div class="panel-heading"><h2>Recent submissions</h2></div>${resultsTable(data.recent || [], false)}</section>`;
+  return `${adminHeader('Dashboard', 'Current assessment activity and outcomes.', '<button class="primary-btn" data-route="admin/students">Register student</button>')}<section class="stat-grid">${statCard('Registered students', numeric(stats.students))}${statCard('Active assessments', numeric(stats.activeExams))}${statCard('Completed today', numeric(stats.completedToday))}${statCard('Average score', `${numeric(stats.averageScore)}%`)}</section><div class="admin-grid"><section class="panel score-distribution-panel"><div class="panel-heading"><h2>Score distribution</h2><span class="chart-caption">Students per score band</span></div>${scoreChart}</section><section class="panel dashboard-outcomes-panel"><div class="panel-heading"><div><h2>Course outcomes</h2><span class="table-muted">Visible assessment components</span></div></div>${outcomeActions}${outcomeList}${pager('outcomes')}</section></div><section class="panel table-panel"><div class="panel-heading"><h2>Recent submissions</h2></div>${resultsTable(data.recent || [], false)}</section>`;
+}
+function enhanceDashboardPortalMode() {
+  const statGrid = document.querySelector('.admin-content .stat-grid');
+  if (!statGrid || document.querySelector('.student-portal-mode')) return;
+  const enabled = Boolean(state.dashboard?.studentPortalSetupMode);
+  const control = document.createElement('section');
+  control.className = `panel student-portal-mode ${enabled ? 'is-enabled' : 'is-disabled'}`;
+  control.innerHTML = `<div class="student-portal-mode-copy"><span class="section-kicker">Student portal</span><h2>Assessment setup mode</h2><p>${enabled ? 'Students currently see the preparation screen while you set up questions and assessment content.' : 'Students can view the normal Test and Exam assessment directory.'}</p></div><div class="student-portal-mode-control"><span class="student-portal-mode-state">${enabled ? 'On --- setup screen visible' : 'Off --- assessment directory visible'}</span><button class="portal-mode-toggle" type="button" role="switch" aria-checked="${enabled}" data-action="toggle-student-portal-mode" data-enabled="${enabled}" aria-label="Turn student portal setup mode ${enabled ? 'off' : 'on'}"><span aria-hidden="true"></span><b>${enabled ? 'On' : 'Off'}</b></button></div>`;
+  statGrid.before(control);
 }
 function studentsPage() {
   const rows = state.students.map(student => `<tr><td>${esc(student.fullName)}</td><td>${esc(student.matricNumber)}</td><td>${esc(student.department)}</td><td>${esc(student.email)}</td><td>${esc(student.phoneNumber || '---')}</td><td><span class="status-pill ${student.active ? '' : 'status-muted'}">${student.active ? 'Active' : 'Disabled'}</span></td><td class="table-actions student-table-actions"><button class="outline-btn small-btn" data-route="admin/student-results/${esc(student.id)}">Results</button><button class="outline-btn small-btn" data-action="student-password" data-id="${esc(student.id)}">Password</button><button class="outline-btn small-btn" data-action="edit-student" data-id="${esc(student.id)}">Edit</button><button class="${student.active ? 'danger-btn' : 'outline-btn'} small-btn" data-action="student-status" data-id="${esc(student.id)}">${student.active ? 'Disable' : 'Reactivate'}</button><button class="danger-btn small-btn" data-action="delete-student" data-id="${esc(student.id)}">Delete</button></td></tr>`).join('');
@@ -1081,9 +1347,23 @@ function auditMonitorRows(items = state.auditMonitor) {
   if (!items.length) return '<tr><td colspan="9"><div class="empty-state"><p>No students are currently taking an assessment.</p></div></td></tr>';
   return items.map(item => `<tr class="audit-session-row" data-action="audit-session-detail" data-id="${esc(item.id)}" tabindex="0" role="button" aria-label="View integrity events for ${esc(item.studentName)}"><td>${esc(item.studentName)}</td><td>${esc(item.matricNumber)}</td><td><strong>${esc(item.course)}</strong><small class="table-muted" style="display:block">${esc(item.courseTitle)}</small></td><td class="table-muted">${fmtDate(item.startedAt)}</td><td>${shortDuration(item.elapsedSeconds)}</td><td>${shortDuration(item.remainingSeconds)}</td><td>${esc(displayIp(item.ipAddress))}</td><td><span class="status-pill ${item.locked ? 'status-danger' : item.status !== 'Normal' ? 'status-warning' : ''}">${esc(item.status)}</span></td><td class="table-actions"><button class="outline-btn small-btn" data-action="audit-session-detail" data-id="${esc(item.id)}">View</button>${item.locked && numeric(item.remainingSeconds) > 0 ? `<button class="primary-btn small-btn" data-action="unlock-exam-session" data-id="${esc(item.id)}">Unlock</button>` : ''}</td></tr>`).join('');
 }
+function auditOutcomeMeta(outcome) {
+  if (outcome === 'failure') return {label: 'Failure', className: 'status-danger'};
+  if (outcome === 'success') return {label: 'Success', className: ''};
+  return {label: 'Not recorded', className: 'status-muted'};
+}
+function auditBeforeAfterDetail(item) {
+  const changes = item.beforeAfter && typeof item.beforeAfter === 'object' ? Object.entries(item.beforeAfter) : [];
+  if (!changes.length) return '<p class="table-muted">No before/after summary was recorded for this event. Historical events were not backfilled.</p>';
+  return `<div class="table-scroll"><table class="data-table audit-change-table"><thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead><tbody>${changes.map(([field, value]) => `<tr><td><strong>${esc(field)}</strong></td><td>${esc(value?.before ?? '---')}</td><td>${esc(value?.after ?? '---')}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function auditEventDetail(item) {
+  const outcome = auditOutcomeMeta(item.outcome);
+  return `<dl class="audit-event-detail"><div><dt>Outcome</dt><dd><span class="status-pill ${outcome.className}">${outcome.label}</span></dd></div><div><dt>IP address</dt><dd>${esc(displayIp(item.ipAddress))}</dd></div><div><dt>Correlation ID</dt><dd><code>${esc(item.correlationId || 'Not recorded')}</code></dd></div><div class="wide"><dt>User agent</dt><dd>${esc(item.userAgent || 'Not recorded')}</dd></div></dl><h3>Change summary</h3>${auditBeforeAfterDetail(item)}`;
+}
 function auditFilterBar() {
   const filter = state.filters.audit;
-  return `<form class="filter-bar" id="audit-filter-form"><label>From<input name="from" type="date" value="${esc(filter.from)}"></label><label>To<input name="to" type="date" value="${esc(filter.to)}"></label><label>Actor<input name="actor" value="${esc(filter.actor)}" placeholder="Admin email or matric"></label><label>Event type<select class="select-field" name="type"><option value="">All event types</option>${['admin_login','admin_logout','administrator_registration_requested','administrator_request_approved','administrator_request_rejected','administrator_password_reset_requested','administrator_password_reset_completed','student_registered','student_updated','student_disabled','students_bulk_imported','exam_created','exam_updated','exam_deleted','question_added','question_updated','question_deleted','questions_bulk_imported','strict_questions_parsed','strict_questions_imported','pdf_questions_parsed','pdf_questions_imported','exam_password_generated','student_exam_login','exam_started','exam_session_unlocked','exam_submitted_manual','exam_submitted_auto','audit_events_deleted','settings_updated','exam_integrity_tab_switch','exam_integrity_blur','exam_integrity_context_menu','exam_integrity_copy','exam_integrity_paste','exam_integrity_devtools'].map(type => `<option value="${type}" ${filter.type === type ? 'selected' : ''}>${type.replaceAll('_', ' ')}</option>`).join('')}</select></label><label>Course<input name="course" value="${esc(filter.course)}" placeholder="e.g. MTH 101"></label><button class="outline-btn">Filter</button><button type="button" class="ghost-btn" data-action="clear-audit-filter">Clear</button></form>`;
+  return `<form class="filter-bar" id="audit-filter-form"><label>From<input name="from" type="date" value="${esc(filter.from)}"></label><label>To<input name="to" type="date" value="${esc(filter.to)}"></label><label>Actor<input name="actor" value="${esc(filter.actor)}" placeholder="Admin email or matric"></label><label>Event type<select class="select-field" name="type"><option value="">All event types</option>${['admin_login','admin_login_failed','admin_logout','administrator_registration_requested','administrator_request_approved','administrator_request_rejected','administrator_password_reset_requested','administrator_password_reset_completed','student_registered','student_updated','student_disabled','students_bulk_imported','exam_created','exam_updated','exam_deleted','question_added','question_updated','question_deleted','questions_bulk_imported','strict_questions_parsed','strict_questions_imported','pdf_questions_parsed','pdf_questions_imported','exam_password_generated','student_exam_login','login_failed','exam_started','exam_session_unlocked','exam_submitted_manual','exam_submitted_auto','audit_events_archived','settings_updated','exam_integrity_tab_switch','exam_integrity_blur','exam_integrity_context_menu','exam_integrity_copy','exam_integrity_paste','exam_integrity_devtools'].map(type => `<option value="${type}" ${filter.type === type ? 'selected' : ''}>${type.replaceAll('_', ' ')}</option>`).join('')}</select></label><label>Course<input name="course" value="${esc(filter.course)}" placeholder="e.g. MTH 101"></label><button class="outline-btn">Filter</button><button type="button" class="ghost-btn" data-action="clear-audit-filter">Clear</button></form>`;
 }
 function auditPage(route) {
   const trail = route[2] === 'trail';
@@ -1093,16 +1373,20 @@ function auditPage(route) {
   const controls = `<div class="audit-controls"><button class="audit-control" data-action="export-audit-csv">CSV</button><button class="audit-control" data-action="export-audit-excel">Excel</button><button class="audit-control" data-action="export-audit-pdf">PDF</button><button class="audit-control" data-action="print-audit">Print</button><button class="audit-control audit-refresh" data-action="refresh-audit">Refresh</button></div>`;
   const hero = `<section class="audit-hero"><div><span class="audit-kicker">Security center</span><h1>Audit Log</h1><p>Monitor logins, admin actions, account changes, and active sessions in one place.</p><strong><i></i>${count} ${trail ? 'events in view' : 'active sessions in view'}, refreshed live as you work.</strong></div>${controls}</section>`;
   if (!trail) return `${hero}${tabs}${help}<section class="panel table-panel"><div class="panel-heading"><h2>Live exam monitor</h2><span class="table-muted" aria-live="polite">Refreshes every 5 seconds</span></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Student</th><th>Matric</th><th>Course</th><th>Started</th><th>Elapsed</th><th>Remaining</th><th>IP address</th><th>Status</th><th></th></tr></thead><tbody id="audit-monitor-rows">${auditMonitorRows()}</tbody></table></div></section>`;
-  const rows = state.auditEvents.length ? state.auditEvents.map(item => `<tr class="audit-event-row"><td class="table-muted">${fmtDate(item.timestamp)}</td><td>${esc(item.actor)}</td><td><span class="status-pill ${item.actionType.includes('integrity') ? 'status-warning' : ''}">${esc(item.actionType.replaceAll('_', ' '))}</span></td><td>${esc(item.target)}</td><td>${esc(displayIp(item.ipAddress))}</td></tr>`).join('') : '<tr><td colspan="5"><div class="empty-state"><p>No events match these filters.</p></div></td></tr>';
-  return `${hero}${tabs}${help}<section class="panel table-panel audit-trail-panel">${auditFilterBar()}<p class="table-muted audit-immutable-note">Audit records are immutable and can only be written by server-side system actions.</p><div class="table-scroll"><table class="data-table"><thead><tr><th>Timestamp</th><th>Actor</th><th>Action</th><th>Target</th><th>IP address</th></tr></thead><tbody>${rows}</tbody></table></div>${pager('audit')}</section>`;
+  const rows = state.auditEvents.length ? state.auditEvents.map(item => { const outcome = auditOutcomeMeta(item.outcome); return `<tr class="audit-event-row"><td class="table-muted">${fmtDate(item.timestamp)}</td><td>${esc(item.actor)}</td><td><span class="status-pill ${outcome.className}">${outcome.label}</span></td><td><span class="status-pill ${item.actionType.includes('integrity') ? 'status-warning' : ''}">${esc(item.actionType.replaceAll('_', ' '))}</span></td><td>${esc(item.target)}</td><td>${esc(displayIp(item.ipAddress))}</td><td class="table-actions"><button class="outline-btn small-btn" data-action="audit-event-detail" data-id="${esc(item.id)}">Review</button></td></tr>`; }).join('') : '<tr><td colspan="7"><div class="empty-state"><p>No events match these filters.</p></div></td></tr>';
+  const archives = state.auditArchives?.items || [];
+  const archiveRows = archives.length ? archives.map(item => `<tr><td><strong>${esc(item.filename)}</strong></td><td>${fmtDate(item.createdAt)}</td><td>${item.from && item.to ? `${fmtDate(item.from)} --- ${fmtDate(item.to)}` : '---'}</td><td>${item.eventCount == null ? 'Unknown' : numeric(item.eventCount)}</td><td>${fileSize(item.size)}</td><td class="table-actions"><button class="outline-btn small-btn" data-action="download-audit-archive" data-id="${esc(item.filename)}">Download</button></td></tr>`).join('') : '<tr><td colspan="6" class="table-muted">No audit archives have been created yet.</td></tr>';
+  const retention = state.auditArchives?.settings || {};
+  const archivesPanel = `<section class="panel table-panel audit-archives-panel"><div class="panel-heading"><div><h2>Archived audit events</h2><p class="table-muted">Events older than ${numeric(retention.months, 12)} months are exported automatically and remain download-only. They cannot be deleted from this system.</p></div><span class="status-pill">${archives.length} archive${archives.length === 1 ? '' : 's'}</span></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Archive file</th><th>Created</th><th>Event period</th><th>Events</th><th>Size</th><th></th></tr></thead><tbody>${archiveRows}</tbody></table></div></section>`;
+  return `${hero}${tabs}${help}<section class="panel table-panel audit-trail-panel">${auditFilterBar()}<p class="table-muted audit-immutable-note">Audit records are immutable and can only be written by server-side system actions. Older records are automatically archived, never manually deleted.</p><div class="table-scroll"><table class="data-table"><thead><tr><th>Timestamp</th><th>Actor</th><th>Outcome</th><th>Action</th><th>Target</th><th>IP address</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>${pager('audit')}</section>${archivesPanel}`;
 }
 function auditExportRows() {
-  if (parts()[2] === 'trail') return state.auditEvents.map(item => [fmtDate(item.timestamp), item.actor || '', String(item.actionType || '').replaceAll('_', ' '), item.target || '', displayIp(item.ipAddress)]);
+  if (parts()[2] === 'trail') return state.auditEvents.map(item => [fmtDate(item.timestamp), item.actor || '', item.outcome || 'Not recorded', String(item.actionType || '').replaceAll('_', ' '), item.target || '', displayIp(item.ipAddress)]);
   return state.auditMonitor.map(item => [item.studentName || '', item.matricNumber || '', item.course || '', fmtDate(item.startedAt), shortDuration(item.elapsedSeconds), shortDuration(item.remainingSeconds), displayIp(item.ipAddress), item.status || '']);
 }
 function downloadAuditExport(kind) {
   const trail = parts()[2] === 'trail';
-  const headers = trail ? ['Timestamp', 'Actor', 'Action', 'Target', 'IP address'] : ['Student', 'Matric', 'Course', 'Started', 'Elapsed', 'Remaining', 'IP address', 'Status'];
+  const headers = trail ? ['Timestamp', 'Actor', 'Outcome', 'Action', 'Target', 'IP address'] : ['Student', 'Matric', 'Course', 'Started', 'Elapsed', 'Remaining', 'IP address', 'Status'];
   const value = cell => `"${String(cell ?? '').replaceAll('"', '""')}"`;
   const csv = [headers, ...auditExportRows()].map(row => row.map(value).join(',')).join('\r\n');
   const blob = new Blob([`\uFEFF${csv}`], {type: 'text/csv;charset=utf-8'}); const url = URL.createObjectURL(blob), link = document.createElement('a');
@@ -1110,16 +1394,27 @@ function downloadAuditExport(kind) {
   setTimeout(() => URL.revokeObjectURL(url), 1000); toast(`${kind === 'excel' ? 'Excel-compatible' : 'CSV'} audit export downloaded.`, 'success');
 }
 function newsletterPage() {
+  const value = branding();
   const stats = state.newsletterStats || {};
   const rows = state.newsletterSubscribers.map(subscriber => `<tr><td><div class="user-cell"><span class="table-avatar">${esc(candidateInitials(subscriber.name))}</span><span><strong>${esc(subscriber.email)}</strong><small class="table-muted">${esc(subscriber.source === 'student' ? 'Student record' : 'Manual subscriber')}</small></span></div></td><td>${esc(subscriber.name)}</td><td><span class="status-pill ${subscriber.status === 'active' ? '' : 'status-muted'}">${subscriber.status === 'active' ? 'Active' : 'Unsubscribed'}</span></td><td><span class="status-pill">${subscriber.verifiedAt ? 'Verified' : 'Pending'}</span></td><td class="table-muted">${fmtDate(subscriber.subscribedAt)}</td><td class="table-actions">${subscriber.status === 'active' ? `<button class="outline-btn small-btn" data-action="unsubscribe-subscriber" data-id="${esc(subscriber.id)}">Unsubscribe</button>` : `<button class="primary-btn small-btn" data-action="subscribe-subscriber" data-id="${esc(subscriber.id)}">Subscribe</button>`}<button class="danger-btn small-btn" data-action="delete-subscriber" data-id="${esc(subscriber.id)}">Delete</button></td></tr>`).join('');
-  const history = state.newsletters.length ? `<div class="table-scroll"><table class="data-table"><thead><tr><th>Subject</th><th>Created</th><th>Recipients</th><th>Mail server result</th></tr></thead><tbody>${state.newsletters.map(item => `<tr><td><strong>${esc(item.subject)}</strong><small class="table-muted" style="display:block">From CACSA LAUTECH &lt;${esc(item.sender)}&gt;</small></td><td class="table-muted">${fmtDate(item.createdAt)}</td><td>${numeric(item.recipientCount)}</td><td><span class="status-pill ${item.failedCount ? 'status-warning' : ''}">${numeric(item.acceptedCount)} accepted · ${numeric(item.failedCount)} failed</span></td></tr>`).join('')}</tbody></table></div>` : emptyState('No newsletters have been sent yet. Compose the first message when ready.');
+  const history = state.newsletters.length ? `<div class="table-scroll"><table class="data-table"><thead><tr><th>Subject</th><th>Created</th><th>Recipients</th><th>Mail server result</th></tr></thead><tbody>${state.newsletters.map(item => `<tr><td><strong>${esc(item.subject)}</strong><small class="table-muted" style="display:block">From ${esc(value.newsletterSenderName)} &lt;${esc(item.sender)}&gt;</small></td><td class="table-muted">${fmtDate(item.createdAt)}</td><td>${numeric(item.recipientCount)}</td><td><span class="status-pill ${item.failedCount ? 'status-warning' : ''}">${numeric(item.acceptedCount)} accepted · ${numeric(item.failedCount)} failed</span></td></tr>`).join('')}</tbody></table></div>` : emptyState('No newsletters have been sent yet. Compose the first message when ready.');
   return `${adminHeader('Newsletter Management', 'Manage subscribers and send updates to registered students and other subscribers.', '<button class="primary-btn" data-action="compose-newsletter">Compose newsletter</button>')}<section class="stat-grid newsletter-stats">${statCard('Total subscribers', numeric(stats.total))}${statCard('Active subscribers', numeric(stats.active), 'Receive newsletters')}${statCard('Student subscribers', numeric(stats.student), 'Synced from registration')}${statCard('Unsubscribed', numeric(stats.unsubscribed), 'Excluded from sends')}</section><section class="panel newsletter-add-panel"><div class="panel-heading"><h2>Add new subscriber</h2><span class="table-muted">Student emails are added automatically.</span></div><form id="newsletter-subscriber-form" class="inline-form"><label class="form-field">Name<input name="name" placeholder="Subscriber name" required></label><label class="form-field">Email address<input type="email" name="email" placeholder="subscriber@example.com" required></label><button class="primary-btn">+ Add subscriber</button></form></section><section class="panel table-panel" style="margin-top:18px"><div class="panel-heading"><h2>Subscribers list</h2></div>${filterBar('newsletter', 'Search email or name', [['active', 'Active'], ['unsubscribed', 'Unsubscribed']])}${state.newsletterSubscribers.length ? `<div class="table-scroll"><table class="data-table newsletter-table"><thead><tr><th>Email</th><th>Name</th><th>Status</th><th>Verified</th><th>Subscribed</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>` : emptyState('No subscribers match this filter. Student emails will appear here as students are registered.')}${pager('newsletter')}</section><section class="panel table-panel" style="margin-top:18px"><div class="panel-heading"><h2>Newsletter history</h2><div class="table-actions"><span class="table-muted">Mail-server handoff results</span>${state.newsletters.length ? '<button class="danger-btn small-btn" data-action="clear-newsletter-history">Clear history</button>' : ''}</div></div>${history}</section>`;
 }
 function newsletterForm() {
+  const value = branding();
   const active = numeric(state.newsletterStats?.active);
   const configured = state.newsletterMailConfigured;
-  openModal('Compose newsletter', `<form id="newsletter-compose-form"><div class="alert ${configured ? '' : 'visible'}" role="alert">${configured ? '' : 'Gmail SMTP is not configured yet. Add the Gmail App Password to the local .env file, then refresh this page.'}</div><p class="table-muted">From: <strong>CACSA LAUTECH &lt;cacsalautech001@gmail.com&gt;</strong> · ${active} active subscriber${active === 1 ? '' : 's'} will receive this message.</p><label class="form-field">Subject<input name="subject" maxlength="180" required></label><label class="form-field">Message<textarea name="content" rows="10" maxlength="10000" required></textarea></label><p class="table-muted">“Accepted” means Gmail accepted the message for delivery. It cannot confirm an inbox delivery.</p><div class="modal-actions"><button class="primary-btn" ${active && configured ? '' : 'disabled'}>Send newsletter</button></div></form>`);
+  openModal('Compose newsletter', `<form id="newsletter-compose-form"><div class="alert ${configured ? '' : 'visible'}" role="alert">${configured ? '' : 'Gmail SMTP is not configured yet. Add the Gmail App Password to the local .env file, then refresh this page.'}</div><p class="table-muted">From: <strong>${esc(value.newsletterSenderName)} &lt;${esc(value.supportEmail)}&gt;</strong> · ${active} active subscriber${active === 1 ? '' : 's'} will receive this message.</p><label class="form-field">Subject<input name="subject" maxlength="180" required></label><label class="form-field">Message<textarea name="content" rows="10" maxlength="10000" required></textarea></label><p class="table-muted">“Accepted” means Gmail accepted the message for delivery. It cannot confirm an inbox delivery.</p><div class="modal-actions"><button class="primary-btn" ${active && configured ? '' : 'disabled'}>Send newsletter</button></div></form>`);
 }
+// A draft from Algebra is prefilled only.  The normal newsletter submission
+// remains the sole code path that can send a message.
+function newsletterForm(draft = null) {
+  const value = branding();
+  const active = numeric(state.newsletterStats?.active);
+  const configured = state.newsletterMailConfigured;
+  openModal('Compose newsletter', `<form id="newsletter-compose-form"><div class="alert ${configured ? '' : 'visible'}" role="alert">${configured ? '' : 'Gmail SMTP is not configured yet. Add the Gmail App Password to the local .env file, then refresh this page.'}</div>${draft ? '<p class="algebra-caveats"><strong>Algebra draft only:</strong> Review and edit this content. It will not be sent until you explicitly choose Send newsletter.</p>' : ''}<p class="table-muted">From: <strong>${esc(value.newsletterSenderName)} &lt;${esc(value.supportEmail)}&gt;</strong> · ${active} active subscriber${active === 1 ? '' : 's'} will receive this message.</p><label class="form-field">Subject<input name="subject" maxlength="180" value="${esc(draft?.subject || '')}" required></label><label class="form-field">Message<textarea name="content" rows="10" maxlength="10000" required>${esc(draft?.content || '')}</textarea></label><p class="table-muted">“Accepted” means Gmail accepted the message for delivery. It cannot confirm an inbox delivery.</p><div class="modal-actions"><button class="primary-btn" ${active && configured ? '' : 'disabled'}>Send newsletter</button></div></form>`);
+}
+
 function rolesPage() {
   const roleRows = state.roles.map(role => `<tr><td><span class="role-initial">${esc(role.name.charAt(0))}</span></td><td><strong>${esc(role.name)}</strong><small class="table-muted" style="display:block">${esc(role.description)}</small></td><td><span class="status-pill">${numeric(role.userCount)} user${numeric(role.userCount) === 1 ? '' : 's'}</span></td><td>${numeric(role.maxUsers)}</td><td><span class="status-pill ${role.systemLocked ? 'status-warning' : ''}">${role.systemLocked ? 'System locked' : 'Configured role'}</span></td><td class="table-actions">${role.systemLocked ? '<span class="table-muted">Protected</span>' : `<button class="outline-btn small-btn" data-action="role-config" data-id="${esc(role.id)}">Configure</button>`}</td></tr>`).join('');
   const users = state.adminUsers.filter(user => !user.systemLocked);
@@ -1168,11 +1463,21 @@ function accountSettingsForm(account, tab = state.accountTab || 'profile') {
     content = `<form id="account-profile-form"><div class="alert" role="alert"></div><label class="form-field">Full name<input name="name" value="${esc(account.name || '')}" autocomplete="name" required></label><label class="form-field">Email address<input name="email" type="email" value="${esc(account.email || '')}" autocomplete="email" ${account.emailManagedByEnvironment ? 'readonly' : 'required'}></label>${emailHelp}<label class="form-field">Phone number<input name="phoneNumber" type="tel" inputmode="tel" autocomplete="tel" value="${esc(account.phoneNumber || '')}" placeholder="e.g. 0801 234 5678"></label><div class="modal-actions"><button class="primary-btn">Save changes</button></div></form>${verification}`;
   } else if (tab === 'security') {
     const disabled = account.passwordManagedByEnvironment ? 'disabled' : '';
-    content = `<form id="account-password-form"><div class="alert ${account.passwordManagedByEnvironment ? 'visible' : ''}" role="alert">${account.passwordManagedByEnvironment ? 'This Superadmin password is managed in the server environment.' : ''}</div><p class="form-help">Choose a unique password of at least eight characters. Saving it signs out your other administrator sessions.</p><label class="form-field">Current password<input name="currentPassword" type="password" autocomplete="current-password" required ${disabled}></label><label class="form-field">New password<input name="newPassword" type="password" autocomplete="new-password" minlength="8" required ${disabled}></label><label class="form-field">Confirm new password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required ${disabled}></label><div class="modal-actions"><button class="primary-btn" ${disabled}>Update password</button></div></form>`;
+    const twoFactor = account.twoFactorEnabled ? `<section class="two-factor-card is-enabled"><div><span class="two-factor-icon" aria-hidden="true">⌾</span><h3>Two-Factor Authentication</h3><p>Your account requires a six-digit code from your authenticator app after your password.</p></div><div class="two-factor-actions"><span class="status-pill">Enabled</span><button class="danger-btn" data-action="account-two-factor-disable">Disable 2FA</button></div></section>` : `<section class="two-factor-card"><div><span class="two-factor-icon" aria-hidden="true">⌾</span><h3>Two-Factor Authentication</h3><p>Add an extra layer of security with an authenticator app. You will enter a six-digit code whenever you sign in.</p></div><div class="two-factor-actions"><span class="status-pill status-muted">Disabled</span><button class="primary-btn" data-action="account-two-factor-enable">Enable 2FA</button></div></section>`;
+    content = `<form id="account-password-form"><div class="alert ${account.passwordManagedByEnvironment ? 'visible' : ''}" role="alert">${account.passwordManagedByEnvironment ? 'This Superadmin password is managed in the server environment.' : ''}</div><p class="form-help">Choose a unique password of at least eight characters. Saving it signs out your other administrator sessions.</p><label class="form-field">Current password<input name="currentPassword" type="password" autocomplete="current-password" required ${disabled}></label><label class="form-field">New password<input name="newPassword" type="password" autocomplete="new-password" minlength="8" required ${disabled}></label><label class="form-field">Confirm new password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required ${disabled}></label><div class="modal-actions"><button class="primary-btn" ${disabled}>Update password</button></div></form>${twoFactor}`;
   } else {
     content = `<section class="account-privacy"><h3>Signed-in devices</h3><p>Your current session remains active. You can end all other administrator sessions for this account if you used a shared device or suspect someone else has access.</p><button class="danger-btn" data-action="account-signout-others">Sign out other sessions</button><hr><h3>Account visibility</h3><p>Your name, email, role, and sign-in activity are visible to the Superadmin for account administration and audit purposes.</p></section>`;
   }
   openModal('Account Settings', `${tabs}<div class="account-settings-content">${content}</div>`);
+}
+function twoFactorBeginForm() {
+  openModal('Enable Two-Factor Authentication', `<form id="two-factor-begin-form"><div class="alert" role="alert"></div><p>Confirm your current password to create a new authenticator-app setup key. Do not share this key with anyone.</p><label class="form-field">Current password<input name="currentPassword" type="password" autocomplete="current-password" required autofocus></label><div class="modal-actions"><button class="outline-btn" type="button" data-action="account-tab" data-tab="security">Cancel</button><button class="primary-btn">Continue</button></div></form>`);
+}
+function twoFactorConfirmForm(setup) {
+  openModal('Set up Two-Factor Authentication', `<form id="two-factor-confirm-form"><div class="alert" role="alert"></div><p>In Google Authenticator, Microsoft Authenticator, Authy, or another compatible app, choose <strong>Enter a setup key</strong>.</p><dl class="two-factor-setup-details"><div><dt>Account</dt><dd>${esc(setup.account)}</dd></div><div><dt>Issuer</dt><dd>${esc(setup.issuer)}</dd></div><div class="wide"><dt>Setup key</dt><dd><code>${esc(setup.secret)}</code><button class="outline-btn small-btn" type="button" data-action="copy-two-factor-secret" data-secret="${esc(setup.secret)}">Copy</button></dd></div></dl><p class="form-help">Use a time-based code, six digits, and a 30-second refresh period. Then enter the current code below to finish enabling 2FA.</p><label class="form-field">Authentication code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="123456" required autofocus></label><div class="modal-actions"><button class="outline-btn" type="button" data-action="account-tab" data-tab="security">Cancel</button><button class="primary-btn">Enable 2FA</button></div></form>`);
+}
+function twoFactorDisableForm() {
+  openModal('Disable Two-Factor Authentication', `<form id="two-factor-disable-form"><div class="alert" role="alert"></div><p>Disabling 2FA removes the extra sign-in check from this administrator account. Confirm with your password and current authenticator code.</p><label class="form-field">Current password<input name="currentPassword" type="password" autocomplete="current-password" required autofocus></label><label class="form-field">Authentication code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="123456" required></label><div class="modal-actions"><button class="outline-btn" type="button" data-action="account-tab" data-tab="security">Cancel</button><button class="danger-btn">Disable 2FA</button></div></form>`);
 }
 function reviewPage() {
   const review = state.review;
@@ -1187,6 +1492,7 @@ function legacyStudentResultsPage() {
   return `${adminHeader(`${esc(report.student?.fullName || '')} result sheet`, `${esc(report.student?.matricNumber || '')} · ${esc(report.student?.department || '')}`, '<button class="outline-btn" data-action="export-csv">Export CSV</button>')}<section class="panel table-panel"><div class="table-scroll"><table class="data-table"><thead><tr><th>Course</th><th>Unit</th><th>Score</th><th>Grade</th><th>Grade point</th><th>Quality points</th><th>Session</th><th></th></tr></thead><tbody>${(report.items || []).map(item => `<tr><td>${esc(item.courseCode)}<small class="table-muted" style="display:block">${esc(item.courseTitle || '')}</small></td><td>${numeric(item.courseUnit)}</td><td>${numeric(item.score)}%</td><td><strong>${esc(item.grade)}</strong></td><td>${numeric(item.gradePoint)}</td><td>${numeric(item.qualityPoints)}</td><td>${esc(item.session || 'Unassigned')}</td><td><button class="outline-btn small-btn" data-route="admin/review/${esc(item.id)}">Review</button></td></tr>`).join('') || '<tr><td colspan="8">No completed courses yet.</td></tr>'}</tbody></table></div></section><section class="stat-grid" style="margin-top:18px">${Object.entries(groups).map(([session, value]) => statCard(`GPA · ${session}`, numeric(value.gpa).toFixed(2), `${numeric(value.courseUnit)} total units`)).join('')}${statCard('Cumulative GPA', numeric(report.cgpa).toFixed(2), 'Across all completed sessions')}</section>`;
 }
 function studentResultsPage() {
+  const value = branding();
   const report = state.report;
   if (!report) return `${adminHeader('Student result', 'Select a student to view a result sheet.')}<button class="outline-btn" data-route="admin/results">Back to results</button>`;
   const student = report.student || {};
@@ -1199,7 +1505,8 @@ function studentResultsPage() {
     if (numeric(maxMark) <= 0) return `<div class="result-component-row not-applicable"><strong>${label}</strong><span>Not applicable</span></div>`;
     if (!result) return `<div class="result-component-row pending"><strong>${label}</strong><span>Not submitted</span><em>In progress</em></div>`;
     const automatic = result.status === 'auto_submitted';
-    return `<div class="result-component-row"><strong>${label}</strong><span><b>${numeric(result.rawScore).toFixed(1)}%</b> raw</span><span><b>${numeric(result.scaledScore, result.score).toFixed(1)} / ${numeric(maxMark)}</b> scaled</span><span>${fmtDate(result.submittedAt)}</span><span class="status-pill ${automatic ? 'status-warning' : ''}">${automatic ? 'Auto-submitted' : 'Submitted'}</span><button class="outline-btn small-btn" data-route="admin/review/${esc(result.id)}">Review</button></div>`;
+    const deleteAction = isInstitutionAdmin() ? `<button class="danger-btn small-btn" data-action="delete-component-submission" data-id="${esc(result.id)}">Delete submission</button>` : '';
+    return `<div class="result-component-row"><strong>${label}</strong><span><b>${numeric(result.rawScore).toFixed(1)}%</b> raw</span><span><b>${numeric(result.scaledScore, result.score).toFixed(1)} / ${numeric(maxMark)}</b> scaled</span><span>${fmtDate(result.submittedAt)}</span><span class="status-pill ${automatic ? 'status-warning' : ''}">${automatic ? 'Auto-submitted' : 'Submitted'}</span><div class="result-component-actions"><button class="outline-btn small-btn" data-route="admin/review/${esc(result.id)}">Review</button>${deleteAction}</div></div>`;
   };
   const groups = (report.items || []).map(item => `<article class="result-course-group"><header><div><strong>${esc(item.courseCode)}</strong><h2>${esc(item.courseTitle)}</h2><small>${numeric(item.courseUnit)} unit${numeric(item.courseUnit) === 1 ? '' : 's'}</small></div><span class="status-pill ${item.status === 'completed' ? '' : 'status-warning'}">${item.status === 'completed' ? 'Ready to calculate' : 'In progress'}</span></header><div class="result-component-list">${componentRow('Test', item.testResult, item.testMaxMark)}${componentRow('Exam', item.examResult, item.examMaxMark)}</div></article>`).join('');
   const incomplete = (report.items || []).filter(item => item.status !== 'completed').length;
@@ -1208,9 +1515,18 @@ function studentResultsPage() {
   const savedItems = report.calculatedResult?.items || [];
   const calculatedRows = savedItems.map(item => `<tr><td><strong>${esc(item.courseCode)}</strong><small class="table-muted" style="display:block">${esc(item.courseTitle || '')}</small></td><td>${numeric(item.courseUnit)}</td><td>${item.testScore == null ? '---' : numeric(item.testScore).toFixed(1)}</td><td>${item.examScore == null ? '---' : numeric(item.examScore).toFixed(1)}</td><td><strong>${numeric(item.total).toFixed(1)}</strong></td><td>${esc(item.grade)}</td><td>${numeric(item.gradePoint).toFixed(2)}</td><td>${numeric(item.qualityPoints).toFixed(2)}</td></tr>`).join('');
   const calculationAction = complete ? `<button class="primary-btn" data-action="calculate-student-result">${calculated ? 'Recalculate result' : 'Calculate result'}</button>` : '';
-  const printHeader = `<div class="print-result-header"><img class="result-sheet-logo" src="${esc(state.settings?.resultLogoUrl || 'CACSA%20Logo.jpeg')}" alt="CACSA LAUTECH logo"><div><h1>CACSA LAUTECH CBT</h1><p>Academic result sheet</p></div><div><strong>Date printed</strong><br>${esc(new Date().toLocaleDateString())}</div></div><div class="print-student-meta"><span><strong>Student:</strong> ${esc(student.fullName || '')}</span><span><strong>Matric:</strong> ${esc(student.matricNumber || '')}</span><span><strong>Session:</strong> ${esc(selectedSession.label || '')}</span><span><strong>Semester:</strong> ${esc(selectedSemester.label || '')}</span></div>`;
-  const resultTable = calculated ? `<section class="result-sheet panel table-panel calculated-result">${printHeader}<div class="panel-heading"><div><h2>Calculated result</h2><span class="table-muted">Calculated ${fmtDate(report.calculatedResult.calculatedAt)}</span></div><div class="table-actions"><button class="outline-btn" data-action="export-csv">Export CSV</button><button class="primary-btn" data-action="print-result-sheet">Print result</button></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Course</th><th>Unit</th><th>Test</th><th>Exam</th><th>Total</th><th>Grade</th><th>Grade point</th><th>Quality points</th></tr></thead><tbody>${calculatedRows}</tbody></table></div><div class="print-gpa"><strong>Semester GPA: ${numeric(report.calculatedResult.semesterGpa).toFixed(2)}</strong><strong>Cumulative CGPA: ${numeric(report.calculatedResult.cgpa).toFixed(2)}</strong></div></section>` : '';
+  const printHeader = `<div class="print-result-header"><img class="result-sheet-logo" src="${esc(rootAsset(value.logoPath))}" alt="${esc(value.displayName)} logo"><div><h1>${esc(value.resultSheetTitle)}</h1><p>Academic result sheet</p></div><div><strong>Date printed</strong><br>${esc(new Date().toLocaleDateString())}</div></div><div class="print-student-meta"><span><strong>Student:</strong> ${esc(student.fullName || '')}</span><span><strong>Matric:</strong> ${esc(student.matricNumber || '')}</span><span><strong>Session:</strong> ${esc(selectedSession.label || '')}</span><span><strong>Semester:</strong> ${esc(selectedSemester.label || '')}</span></div>`;
+  const resultTable = calculated ? `<section class="result-sheet panel table-panel calculated-result">${printHeader}<div class="panel-heading"><div><h2>Calculated result</h2><span class="table-muted">Calculated ${fmtDate(report.calculatedResult.calculatedAt)}</span></div><div class="table-actions"><button class="outline-btn" data-action="export-csv">Export CSV</button><button class="outline-btn" data-action="reset-student-result">Reset calculation</button><button class="primary-btn" data-action="print-result-sheet">Print result</button></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Course</th><th>Unit</th><th>Test</th><th>Exam</th><th>Total</th><th>Grade</th><th>Grade point</th><th>Quality points</th></tr></thead><tbody>${calculatedRows}</tbody></table></div><div class="print-gpa"><strong>Semester GPA: ${numeric(report.calculatedResult.semesterGpa).toFixed(2)}</strong><strong>Cumulative CGPA: ${numeric(report.calculatedResult.cgpa).toFixed(2)}</strong></div></section>` : '';
   return `${adminHeader(`${esc(student.fullName || '')} · results`, `${esc(student.matricNumber || '')} · ${esc(student.department || '')}`, '<button class="outline-btn" data-route="admin/results">← Back to student results</button>')}<section class="panel result-detail-period"><div><span class="section-kicker">Student result detail</span><h2>${esc(student.fullName || '')}</h2><p>${esc(student.matricNumber || '')}</p></div>${periods.length ? periodSelector : '<span class="table-muted">No submitted periods yet.</span>'}</section><section class="result-course-summary"><div class="panel-heading"><div><h2>Submitted components by course</h2><span class="table-muted">Test and Exam submissions are kept together for each course.</span></div>${calculationAction}</div>${incomplete ? `<p class="result-in-progress-note">${incomplete} of ${report.items.length} course${report.items.length === 1 ? '' : 's'} still in progress. They will be excluded until all required components are submitted.</p>` : '<p class="result-ready-note">All submitted courses are ready for result calculation.</p>'}${groups || emptyState('No submitted components exist for this academic period.')}</section>${resultTable}`;
+}
+
+function componentSubmissionDeleteForm(result) {
+  const student = state.report?.student || {};
+  const component = String(result?.component || 'exam').toLowerCase() === 'test' ? 'Test' : 'Exam';
+  const course = state.report?.items?.find(item => item.testResult?.id === result?.id || item.examResult?.id === result?.id) || {};
+  const matricNumber = String(student.matricNumber || '');
+  if (!result?.id || !matricNumber) return toast('This submission is no longer available. Refresh the result page and try again.', 'error');
+  openModal(`Delete ${component} submission`, `<form id="component-submission-delete-form" data-result-id="${esc(result.id)}" data-matric-number="${esc(matricNumber)}"><div class="alert" role="alert"></div><p class="backup-warning"><strong>This permanently deletes one ${component} submission and its saved answers.</strong> A safety backup will be created immediately before deletion so the change can be recovered through Restore from backup if needed.</p><p class="form-help"><strong>Superadmin-only action.</strong> Use it only for a confirmed duplicate attempt, technical glitch, or exam-security incident.</p><dl class="component-delete-summary"><div><dt>Student</dt><dd>${esc(student.fullName || '')} (${esc(matricNumber)})</dd></div><div><dt>Submission</dt><dd>${esc(course.courseCode || '')} --- ${esc(course.courseTitle || '')} --- ${component}</dd></div></dl><label class="form-field">Reason for deleting this submission (required, at least 15 characters)<textarea name="reason" rows="4" minlength="15" required placeholder="Describe the confirmed technical issue or security incident"></textarea></label><label class="form-field">To continue, type the student's matric number: <strong>${esc(matricNumber)}</strong><input name="confirmation" autocomplete="off" required></label><p class="form-help">If this submission is part of a calculated result, that calculation will be reset to Not calculated automatically.</p><div class="modal-actions"><button class="outline-btn" type="button" data-action="close-modal">Cancel</button><button class="danger-btn" type="submit" data-component-delete-submit disabled>Delete ${component} submission</button></div></form>`);
 }
 
 function settingsPage() {
@@ -1228,11 +1544,23 @@ function academicSettingsPage() {
   return `${adminHeader('Settings', 'Configure academic periods, grading, and exam-integrity responses.')}<section class="panel"><div class="panel-heading"><div><h2>Academic sessions & semesters</h2><p class="table-muted">New courses use the active session and semester by default. Current: <strong>${esc(activeSession?.label || 'Not set')}</strong> / <strong>${esc(activeSemester?.label || 'Not set')}</strong>.</p></div><div class="table-actions"><button class="outline-btn" data-action="new-semester">+ Semester</button><button class="primary-btn" data-action="new-academic-session">+ Academic session</button></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Academic session</th><th>Status</th><th>Actions</th></tr></thead><tbody>${sessionRows || '<tr><td colspan="3">No academic sessions yet.</td></tr>'}</tbody></table></div><div class="table-scroll" style="margin-top:18px"><table class="data-table"><thead><tr><th>Session</th><th>Semester</th><th>Dates</th><th>Status</th><th>Actions</th></tr></thead><tbody>${semesterRows || '<tr><td colspan="5">No semesters yet.</td></tr>'}</tbody></table></div></section><form id="grading-form"><section class="panel" style="margin-top:18px"><div class="panel-heading"><h2>Grading scale</h2></div><p class="table-muted">Ranges must cover scores from 0 to 100 without overlapping. Completed course totals use this scale.</p><div class="table-scroll"><table class="data-table"><thead><tr><th>Minimum</th><th>Maximum</th><th>Grade</th><th>Point</th><th></th></tr></thead><tbody id="grading-rows">${scale.map(gradingRow).join('')}</tbody></table></div><div class="modal-actions"><button type="button" class="outline-btn" data-action="add-grade-row">Add row</button></div></section><section class="panel" style="margin-top:18px"><div class="panel-heading"><h2>Exam-integrity response</h2></div><p class="table-muted">A browser signal is not proof of misconduct. Browsers cannot detect operating-system screenshots or mobile screenshot gestures. “Warn student” locks after the configured number of repeat events.</p><div class="table-scroll"><table class="data-table"><thead><tr><th>Signal</th><th>Response</th><th>Lock after</th></tr></thead><tbody>${INTEGRITY_EVENT_TYPES.map(event => integrityPolicyRow(event, policy[event])).join('')}</tbody></table></div></section><div class="modal-actions" style="margin-top:18px"><button class="primary-btn">Save settings</button></div></form><section class="panel" style="margin-top:18px"><button class="danger-btn" data-action="admin-logout">Sign out</button></section>`;
 }
 
+function platformSettingsPage() {
+  const value = branding();
+  return `${adminHeader('Platform settings', 'Configure the Berevion platform without entering an institution workspace.', '<button class="primary-btn" data-route="admin/institutions">Manage institutions</button>')}<section class="panel"><div class="panel-heading"><div><span class="section-kicker">Platform identity</span><h2>${esc(value.displayName)}</h2><p class="table-muted">${esc(value.tagline || value.assessmentLabel || 'Examine. Verify. Excel.')}</p></div><span class="status-pill">Platform only</span></div><p class="table-muted">Institution grading scales, academic sessions, assessment security, portal availability, backup schedules, and audit retention are deliberately not available here. Select an institution from <strong>Institutions</strong> to manage its own settings in an explicit tenant context.</p></section><section class="panel" style="margin-top:18px"><div class="panel-heading"><div><h2>Account and security</h2><p class="table-muted">Manage your Super Admin profile, password, two-factor authentication, and signed-in devices.</p></div><button class="outline-btn" data-action="account-settings">Open account settings</button></div></section>`;
+}
 function settingsPage() {
-  const logoField = `<section class="panel" style="margin-top:18px"><div class="panel-heading"><h2>Result-sheet branding</h2></div><label class="form-field">Logo image path or URL<input name="resultLogoUrl" value="${esc(state.settings?.resultLogoUrl || 'CACSA%20Logo.jpeg')}" placeholder="CACSA%20Logo.jpeg" required></label><p class="table-muted">This image appears at the top of every printable result sheet.</p></section>`;
+  if (isPlatformSuperAdmin() && !TENANT_SLUG) return platformSettingsPage();
+  const platformScopeNotice = isPlatformSuperAdmin() && TENANT_SLUG ? `<section class="panel institution-settings-scope"><div><span class="section-kicker">Platform Super Admin</span><h2>Managing ${esc(branding().displayName)}</h2><p class="table-muted">Changes on this page apply only to <code>/i/${esc(TENANT_SLUG)}/</code> and are recorded against this institution.</p></div><a class="outline-btn" href="${esc(APP_ROOT)}/admin/institutions">Back to institutions</a></section>` : '';
+  const logoField = `<section class="panel" style="margin-top:18px"><div class="panel-heading"><h2>Result-sheet branding</h2></div><label class="form-field">Logo image path or URL<input name="resultLogoUrl" value="${esc(state.settings?.resultLogoUrl || branding().logoPath)}" placeholder="${esc(branding().logoPath)}" required></label><p class="table-muted">This image appears at the top of every printable result sheet.</p></section>`;
   const security = state.settings?.examSecurity || {};
+  const auditRetention = state.settings?.auditRetention || {};
+  const isSuperadmin = isInstitutionAdmin();
+  const backup = state.settings?.backup || {};
+  const portalModeField = isSuperadmin ? `<section class="panel" style="margin-top:18px"><div class="panel-heading"><div><h2>Student portal availability</h2><p class="table-muted">Temporarily show the setup screen on the public student home page while assessment content is being prepared.</p></div><span class="status-pill">Superadmin only</span></div><label class="checkbox-field"><input type="checkbox" name="studentPortalSetupMode" ${state.settings?.studentPortalSetupMode ? 'checked' : ''}> Enable assessment setup mode</label><p class="table-muted">When enabled, students see the branded preparation screen instead of the available Test and Exam directory. Student login and active exam sessions are not interrupted.</p></section>` : '';
+  const backupField = isSuperadmin ? `<section class="panel" style="margin-top:18px"><div class="panel-heading"><div><h2>Automatic database backup</h2><p class="table-muted">Configure the daily server backup and how many recent backup files are retained.</p></div><span class="status-pill">Superadmin only</span></div><label class="checkbox-field"><input type="checkbox" name="backupEnabled" ${backup.enabled !== false ? 'checked' : ''}> Enable daily automatic backup</label><div class="form-grid"><label class="form-field">Daily server time<input name="backupTime" type="time" value="${esc(backup.time || '02:00')}" required></label><label class="form-field">Maximum backups to keep<input name="backupRetentionCount" type="number" min="1" max="365" value="${numeric(backup.retentionCount, 14)}" required></label></div><p class="table-muted">Backups are stored in database/backups/. When the retention limit is reached, the oldest backup files are removed automatically. Use Database Backup to create, download, or restore a snapshot.</p></section>` : '';
+  const auditRetentionField = isSuperadmin ? `<section class="panel" style="margin-top:18px"><div class="panel-heading"><h2>Audit-log retention</h2><span class="status-pill">Superadmin only</span></div><div class="form-grid"><label class="form-field">Archive events older than<input name="auditRetentionMonths" type="number" min="1" max="120" value="${numeric(auditRetention.months, 12)}" required><small>months</small></label><label class="form-field">Daily archive time<input name="auditRetentionTime" type="time" value="${esc(auditRetention.time || '02:15')}" required></label></div><p class="table-muted">The server exports expired active-log events to dated, downloadable files in database/backups/. No administrator can delete audit records.</p></section>` : '';
   const optionSecurityField = `<section class="panel" style="margin-top:18px"><div class="panel-heading"><h2>Assessment security</h2></div><label class="checkbox-field"><input type="checkbox" name="optionShuffleEnabled" ${security.optionShuffleEnabled !== false ? 'checked' : ''}> Shuffle answer options separately for every student session</label><p class="table-muted">The selected answer is mapped back to the original answer key during grading. Admin question-bank and result-review screens always keep the original option order.</p><label class="checkbox-field"><input type="checkbox" name="fingerprintFlaggingEnabled" ${security.fingerprintFlaggingEnabled !== false ? 'checked' : ''}> Flag a device used by different students for the same assessment</label><p class="table-muted">Uses a lightweight hash of browser, screen, platform, and timezone only. It is an investigation signal---not proof---and never automatically locks a student in a shared computer lab.</p><label class="checkbox-field"><input type="checkbox" name="concurrentIpBlockEnabled" ${security.concurrentIpBlockEnabled !== false ? 'checked' : ''}> Block a second login for the same active assessment from a different IP address</label><p class="table-muted">A refresh or reconnect from the same network is allowed. A rejected different-network attempt is retained in the live audit monitor.</p><label class="checkbox-field"><input type="checkbox" name="loginRateLimitEnabled" ${security.loginRateLimitEnabled !== false ? 'checked' : ''}> Limit repeated exam-login attempts</label><div class="form-grid"><label class="form-field">Failed attempts before lock<input name="loginAttemptLimit" type="number" min="3" max="20" value="${numeric(security.loginAttemptLimit, 5)}"></label><label class="form-field">Failure window (minutes)<input name="loginAttemptWindowMinutes" type="number" min="1" max="60" value="${numeric(security.loginAttemptWindowMinutes, 10)}"></label><label class="form-field">Lockout time (minutes)<input name="loginLockoutMinutes" type="number" min="1" max="120" value="${numeric(security.loginLockoutMinutes, 15)}"></label><label class="form-field">Network attempts per minute<input name="ipAttemptLimit" type="number" min="5" max="200" value="${numeric(security.ipAttemptLimit, 30)}"></label><label class="form-field">Network window (minutes)<input name="ipAttemptWindowMinutes" type="number" min="1" max="60" value="${numeric(security.ipAttemptWindowMinutes, 1)}"></label></div><p class="table-muted">The default allows normal mistakes: 5 failed attempts in 10 minutes, then a 15-minute lock. The network limit counts all login requests to slow broad password guessing.</p></section>`;
-  return academicSettingsPage().replace('<form id="grading-form">', `<form id="grading-form">${logoField}${optionSecurityField}`);
+  return `${platformScopeNotice}${academicSettingsPage().replace('<form id="grading-form">', `<form id="grading-form">${logoField}${portalModeField}${optionSecurityField}${backupField}${auditRetentionField}`)}`;
 }
 
 function gradingRow(row = {}) {
@@ -1448,22 +1776,59 @@ async function uploadQuestionPdf(file, courseId, provider = 'gemini') {
   const limitMb = 10;
   if (!(file instanceof File)) throw new Error('Choose a PDF file first.');
   if (file.size > limitMb * 1024 * 1024) throw new Error(`This PDF is larger than ${limitMb} MB. Split it into smaller topic or chapter sections before importing.`);
-  const data = new FormData(); data.set('pdf', file); data.set('courseId', courseId);
+  const cancel = document.querySelector('[data-pdf-job-cancel]');
+  if (cancel) cancel.disabled = true;
+  const data = new FormData(); data.set('pdf', file); data.set('courseId', courseId); data.set('provider', provider);
   let response;
   await refreshCsrfToken();
-  try { response = await fetch(query(openRouter ? 'openrouter-pdf-question-parse' : 'pdf-question-parse'), {method: 'POST', headers: {'X-CSRF-Token': state.csrfToken}, body: data, credentials: 'same-origin'}); }
+  try { response = await fetch(query('pdf-import-jobs'), {method: 'POST', headers: {'X-CSRF-Token': state.csrfToken}, body: data, credentials: 'same-origin'}); }
   catch { throw new Error('Cannot reach the server. Check your connection and try again.'); }
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || 'The PDF could not be processed.');
-  return payload;
+  if (!response.ok) throw new Error(payload.error || 'The PDF could not be queued.');
+  const jobId = String(payload.job?.id || ''); if (!jobId) throw new Error('The server did not return a PDF import job.');
+  return waitForPdfImportJob(jobId);
+}
+async function waitForPdfImportJob(jobId) {
+  const status = document.querySelector('[data-pdf-job-status]');
+  const cancel = document.querySelector('[data-pdf-job-cancel]');
+  if (cancel) { cancel.dataset.jobId = jobId; cancel.disabled = false; }
+  for (;;) {
+    if (cancel?.dataset.cancelled === 'true') { const error = new Error('PDF import cancelled.'); error.cancelled = true; throw error; }
+    if (status) status.textContent = 'PDF queued — waiting for the secure import worker…';
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    if (cancel?.dataset.cancelled === 'true') { const error = new Error('PDF import cancelled.'); error.cancelled = true; throw error; }
+    const job = (await api('pdf-import-jobs', {admin: true}, {id: jobId})).job || {};
+    if (job.status === 'review_ready') return {...job, jobId};
+    if (job.status === 'failed' || job.status === 'cancelled') throw new Error(job.error || 'The PDF import could not be completed.');
+    if (status) status.textContent = job.status === 'running' ? `Reading PDF${job.attemptCount > 1 ? ` (attempt ${job.attemptCount})` : ''} — keep this window open to receive the review.` : 'PDF queued — waiting for the secure import worker…';
+  }
 }
 function pdfQuestionImportForm(course, provider = 'gemini') {
   if (!course) return toast('Course Question Bank not found.', 'error');
-  const openRouter = provider === 'openrouter', providerLabel = openRouter ? 'OpenRouter' : 'Gemini', limits = '25 pages, 100 questions, and 10 MB';
-  openModal('Import questions from PDF', `<form id="pdf-question-upload-form" data-course-id="${esc(course.id)}" data-provider="${openRouter ? 'openrouter' : 'gemini'}"><div class="alert" role="alert"></div><p class="pdf-import-honesty"><strong>Review required:</strong> ${providerLabel} uses AI to read the document and is not always perfectly accurate, especially for answer keys. Always review every question before publishing.</p><p class="table-muted">For ${esc(course.code)} --- ${esc(course.title)}. Upload one text-based PDF with at most ${limits}. To improve completeness, pages are read in small ordered sections before the combined review opens. Split larger files by topic or chapter, keeping each section's questions and answer key together.</p><label class="form-field">PDF document<input name="pdf" type="file" accept="application/pdf,.pdf" required></label><div class="modal-actions"><button class="outline-btn" type="button" data-action="close-modal">Cancel</button><button class="primary-btn">Read PDF with ${providerLabel} and review</button></div></form>`);
+  const openRouter = provider === 'openrouter', providerLabel = openRouter ? 'OpenRouter' : 'Gemini', limits = '150 pages, 100 drafted questions, and 10 MB';
+  openModal('Import questions from PDF', `<form id="pdf-question-upload-form" data-course-id="${esc(course.id)}" data-provider="${openRouter ? 'openrouter' : 'gemini'}"><div class="alert" role="alert"></div><p class="pdf-import-honesty"><strong>Review required:</strong> ${providerLabel} uses AI to read the document and is not always perfectly accurate, especially for answer keys. Always review every question before publishing.</p><p class="table-muted">For ${esc(course.code)} --- ${esc(course.title)}. Upload one text-based PDF with at most ${limits}. To improve completeness, pages are read in small ordered sections before the combined review opens. If the PDF contains more than 100 questions, the first 100 distinct questions found are brought to review as Drafts; the upload is not rejected for having additional questions.</p><label class="form-field">PDF document<input name="pdf" type="file" accept="application/pdf,.pdf" required></label><p class="table-muted" data-pdf-job-status aria-live="polite"></p><div class="modal-actions"><button class="outline-btn" type="button" data-action="cancel-pdf-import-job" data-pdf-job-cancel disabled>Cancel</button><button class="primary-btn">Queue PDF with ${providerLabel} for review</button></div></form>`, {closeable: false});
+  document.querySelector('[data-pdf-job-cancel]')?.removeAttribute('disabled');
+  const form = document.querySelector('#pdf-question-upload-form');
+  void (async () => {
+    try {
+      const existing = (await api('pdf-import-jobs', {admin: true}, {courseId: course.id})).job;
+      if (!existing) return;
+      const submit = form?.querySelector('button[type="submit"]');
+      const file = form?.elements.pdf;
+      if (submit) submit.disabled = true;
+      if (file) file.disabled = true;
+      const job = await waitForPdfImportJob(String(existing.id));
+      state.pdfImportReview = {jobId: job.jobId, courseId: course.id, provider: job.provider || provider, filename: job.filename, pages: numeric(job.pages), items: (job.items || []).map(item => ({...item, selected: true}))};
+      closeModal(); navigate(`admin/questions/${course.id}/pdf-review`);
+    } catch (error) {
+      if (!error?.cancelled) showError(error, form);
+      form?.querySelector('button[type="submit"]')?.removeAttribute('disabled');
+      if (form?.elements.pdf) form.elements.pdf.disabled = false;
+    }
+  })();
 }
 function restoreBackupValidationForm() {
-  openModal('Restore from backup', `<form id="backup-restore-validate-form"><div class="alert" role="alert"></div><p>Choose a CACSA CBT backup JSON file. The server will validate its structure before any restore confirmation is shown.</p><label class="form-field">Backup JSON file<input name="backup" type="file" accept="application/json,.json" required></label><div class="modal-actions"><button class="outline-btn" type="button" data-action="close-modal">Cancel</button><button class="danger-btn">Validate backup</button></div></form>`);
+  openModal('Restore from backup', `<form id="backup-restore-validate-form"><div class="alert" role="alert"></div><p>Choose the institution CBT backup JSON file. The server will validate its structure before any restore confirmation is shown.</p><label class="form-field">Backup JSON file<input name="backup" type="file" accept="application/json,.json" required></label><div class="modal-actions"><button class="outline-btn" type="button" data-action="close-modal">Cancel</button><button class="danger-btn">Validate backup</button></div></form>`);
 }
 function restoreBackupConfirmationForm(info) {
   const summary = info.summary || {};
@@ -1477,16 +1842,43 @@ async function handleForm(event) {
   const submitButton = form.querySelector('button[type="submit"], button:not([type])');
   setBusy(submitButton, true);
   try {
-    if (form.id === 'admin-login-form') {
+    if (form.id === 'platform-institution-form') {
+      const response = await api('platform-institutions', {method: 'POST', body: new FormData(form)});
+      closeModal();
+      state.institutions = (await api('platform-institutions')).items || [];
+      showProvisionedInstitution(response);
+      toast('Institution provisioned. Store the initial Admin password securely.', 'success');
+    } else if (form.id === 'platform-branding-form') {
+      const response = await api('platform-institutions', {method: 'POST', body: new FormData(form)});
+      state.institutions = (await api('platform-institutions')).items || [];
+      closeModal(); render();
+      toast(`Branding updated. Light controls use ${response.accent?.primary || 'the resolved accent'}; dark controls use ${response.accent?.accent || 'the resolved accent'}.`, 'success');
+    } else if (form.id === 'platform-institution-delete-form') {
+      const payload = new FormData(form); payload.set('operation', 'soft-delete'); payload.set('institutionId', String(form.dataset.institutionId || ''));
+      const response = await api('platform-institutions', {method: 'POST', body: payload});
+      state.institutions = (await api('platform-institutions')).items || [];
+      closeModal(); render();
+      toast(`Institution soft-deleted. Safety backup: ${response.item?.safetyBackup || 'created'}.`, 'success');
+    } else if (form.id === 'admin-login-form') {
       const values = formData(form);
       const response = await post('admin-login', values);
       if (values.remember) localStorage.setItem('algeAdminRememberedEmail', String(values.email || '').trim().toLowerCase());
       else localStorage.removeItem('algeAdminRememberedEmail');
+      // A password-only response is not an authenticated admin session. Clear
+      // any stale client-side identity before moving to the 2FA step so an old
+      // page state cannot try to load the dashboard before verification.
+      if (response.twoFactorRequired) { clearAdmin(); navigate('admin/login-2fa'); return; }
       state.adminAuthenticated = true;
+      state.adminAuthVersion += 1;
       state.adminUser = response.user || null;
       sessionStorage.removeItem('algeAdminToken'); sessionStorage.removeItem('algeAdminExpiresAt');
       saveStored('algeAdminUser', state.adminUser);
       toast('Signed in successfully.', 'success'); navigate(response.user?.mustChangePassword ? 'admin/force-password' : 'admin/overview');
+    } else if (form.id === 'admin-login-2fa-form') {
+      const response = await post('admin-login-2fa', {code: formData(form).code});
+      state.adminAuthenticated = true; state.adminAuthVersion += 1; state.adminUser = response.user || null;
+      sessionStorage.removeItem('algeAdminToken'); sessionStorage.removeItem('algeAdminExpiresAt'); saveStored('algeAdminUser', state.adminUser);
+      toast('Two-factor authentication verified. Signed in successfully.', 'success'); navigate(response.user?.mustChangePassword ? 'admin/force-password' : 'admin/overview');
     } else if (form.id === 'admin-password-reset-request-form') {
       const values = formData(form);
       await post('admin-password-reset-request', {email: values.email});
@@ -1502,6 +1894,12 @@ async function handleForm(event) {
       sessionStorage.removeItem('algeAdminPasswordResetEmail');
       sessionStorage.setItem('algeAdminAuthNotice', 'Password reset successful. Your account is suspended until a Superadmin reactivates it.');
       navigate('admin/login');
+    } else if (form.id === 'emergency-recovery-form') {
+      const values = formData(form);
+      if (values.newPassword !== values.confirmPassword) throw new Error('The new passwords do not match.');
+      await post('emergency-recovery', {code: values.code, newPassword: values.newPassword});
+      clearAdmin(); sessionStorage.setItem('algeAdminAuthNotice', 'Emergency recovery succeeded. Sign in with your new Superadmin password and set up a new emergency-code set.');
+      toast('Superadmin access has been reset. All previous sessions and 2FA settings were cleared.', 'success'); navigate('admin/login');
     } else if (form.id === 'admin-registration-form') {
       const values = formData(form);
       if (values.password !== values.confirmPassword) throw new Error('The passwords do not match.');
@@ -1527,6 +1925,16 @@ async function handleForm(event) {
       await post('admin-account', {operation: 'change-password', currentPassword: values.currentPassword, newPassword: values.newPassword});
       form.reset(); toast('Password updated. Other sessions were signed out.', 'success');
       if (currentRoute() === 'admin/force-password') navigate('admin/overview');
+    } else if (form.id === 'two-factor-begin-form') {
+      const response = await post('admin-account', {operation: 'two-factor-begin', currentPassword: formData(form).currentPassword});
+      twoFactorConfirmForm(response.setup);
+    } else if (form.id === 'two-factor-confirm-form') {
+      const response = await post('admin-account', {operation: 'two-factor-confirm', code: formData(form).code});
+      state.account = response.account; toast('Two-factor authentication is now enabled.', 'success'); accountSettingsForm(response.account, 'security');
+    } else if (form.id === 'two-factor-disable-form') {
+      const values = formData(form);
+      const response = await post('admin-account', {operation: 'two-factor-disable', currentPassword: values.currentPassword, code: values.code});
+      state.account = response.account; toast('Two-factor authentication has been disabled.', 'success'); accountSettingsForm(response.account, 'security');
     } else if (form.id === 'student-login-form') {
       const response = await post('student-login', {...formData(form), examId: state.selectedExamId, deviceFingerprint: await lightweightDeviceFingerprint()});
       state.studentAccess = {student: response.student, exam: response.exam, examId: state.selectedExamId};
@@ -1577,6 +1985,58 @@ async function handleForm(event) {
       value.startAt = new Date(value.startAt).toISOString(); value.endAt = new Date(value.endAt).toISOString();
       if (id) await put('exams', value, {id}); else await post('exams', value);
       closeModal(); toast(id ? 'Exam updated.' : 'Exam created.', 'success'); render();
+    } else if (form.id === 'algebra-question-draft-form') {
+      const values = formData(form);
+      const count = Number(values.count), singleCount = Number(values.singleCount), multipleCount = Number(values.multipleCount);
+      if (!values.courseId) throw new Error('Choose a course question bank.');
+      if (!Number.isInteger(count) || count < 1 || count > 25 || !Number.isInteger(singleCount) || !Number.isInteger(multipleCount) || singleCount < 0 || multipleCount < 0 || singleCount + multipleCount !== count) throw new Error('Choose 1 to 25 questions and make the single/multiple counts add up exactly.');
+      const response = await post('algebra-question-draft', {courseId: values.courseId, topic: String(values.topic || '').trim(), difficulty: values.difficulty, count, singleCount, multipleCount, brief: String(values.brief || '').trim()});
+      state.algebraDraftReview = {requestId: response.requestId, courseId: response.courseId, items: (response.items || []).map(item => ({...item, selected: true}))};
+      navigate('admin/algebra/review');
+    } else if (form.id === 'algebra-performance-insight-form') {
+      const question = String(form.elements.question.value || '').trim();
+      if (!question) throw new Error('Ask Algebra a performance question.');
+      const response = await post('algebra-performance-insight', {question});
+      state.algebraInsight = {...response, generatedAt: new Date().toISOString()};
+      toast('Read-only performance insight generated.', 'success'); render();
+    } else if (form.id === 'algebra-setup-suggestion-form') {
+      const values = formData(form);
+      const response = await post('algebra-setup-suggestion', {formType: values.formType, brief: String(values.brief || '').trim()});
+      state.algebraSetupSuggestion = {...response, targetComponentId: String(values.componentId || '')};
+      toast('Setup suggestion generated. Review it before using any values.', 'success'); render();
+    } else if (form.id === 'algebra-audit-digest-form') {
+      const values = formData(form);
+      if (!values.from || !values.to || values.from > values.to) throw new Error('Choose a valid audit-digest date range.');
+      state.algebraAuditDigest = await post('algebra-audit-digest', {from: values.from, to: values.to});
+      toast('Read-only audit digest generated.', 'success'); render();
+    } else if (form.id === 'algebra-anomaly-flags-form') {
+      state.algebraAnomalyFlags = await post('algebra-anomaly-flags', {});
+      toast('Review signals generated. No student action has been taken.', 'success'); render();
+    } else if (form.id === 'algebra-communication-draft-form') {
+      const values = formData(form);
+      state.algebraCommunicationDraft = await post('algebra-communication-draft', {purpose: String(values.purpose || '').trim(), audience: String(values.audience || '').trim(), keyPoints: String(values.keyPoints || '').trim()});
+      toast('Announcement draft generated. It has not been sent.', 'success'); render();
+    } else if (form.id === 'algebra-result-report-form') {
+      const [studentId, sessionId, semesterId] = String(form.elements.resultKey.value || '').split('|');
+      if (!studentId || !sessionId || !semesterId) throw new Error('Choose a calculated result.');
+      state.algebraResultDraft = {...await post('algebra-result-report', {studentId, sessionId, semesterId}), resultKey: `${studentId}|${sessionId}|${semesterId}`};
+      toast('Printable result-sheet narrative drafted. It has not changed the calculated result.', 'success'); render();
+    } else if (form.id === 'algebra-draft-review-form') {
+      const cards = [...form.querySelectorAll('[data-algebra-draft-item]')];
+      const items = cards.filter(card => card.querySelector('[data-algebra-draft-include]')?.checked).map((card, index) => {
+        const questionText = String(card.querySelector('[data-algebra-draft-question]')?.value || '').trim();
+        const options = [...card.querySelectorAll('[data-algebra-draft-option]')].map(input => String(input.value || '').trim());
+        const correctOptionIndexes = [...card.querySelectorAll('[data-algebra-draft-correct]:checked')].map(input => Number(input.value));
+        if (!questionText) throw new Error(`Question ${index + 1} needs question text.`);
+        if (options.length < 2 || options.length > 10 || options.some(option => !option)) throw new Error(`Question ${index + 1} needs between 2 and 10 completed options.`);
+        if (!correctOptionIndexes.length) throw new Error(`Select the correct answer or answers for question ${index + 1}.`);
+        return {questionText, options, correctOptionIndexes};
+      });
+      if (!items.length) throw new Error('Select at least one reviewed question to import.');
+      const response = await post('algebra-question-import', {requestId: form.dataset.requestId, courseId: form.dataset.courseId, items});
+      state.algebraDraftReview = null;
+      toast(numeric(response.added) ? `${numeric(response.added)} reviewed Algebra question${numeric(response.added) === 1 ? '' : 's'} imported as Draft${numeric(response.skipped) ? `; ${numeric(response.skipped)} duplicate${numeric(response.skipped) === 1 ? '' : 's'} skipped.` : '.'}` : 'No questions were imported because they already exist in this course pool.', numeric(response.added) ? 'success' : 'info');
+      navigate(`admin/questions/${form.dataset.courseId}`);
     } else if (form.id === 'strict-question-upload-form') {
       const file = form.elements.source.files?.[0];
       const response = await uploadStrictQuestionImport(file, form.elements.text.value, form.dataset.courseId);
@@ -1601,7 +2061,7 @@ async function handleForm(event) {
       const file = form.elements.pdf.files?.[0];
       const provider = form.dataset.provider === 'openrouter' ? 'openrouter' : 'gemini';
       const response = await uploadQuestionPdf(file, form.dataset.courseId, provider);
-      state.pdfImportReview = {courseId: form.dataset.courseId, provider, filename: response.filename, pages: numeric(response.pages), items: (response.items || []).map(item => ({...item, selected: true}))};
+      state.pdfImportReview = {jobId: response.jobId, courseId: form.dataset.courseId, provider, filename: response.filename, pages: numeric(response.pages), items: (response.items || []).map(item => ({...item, selected: true}))};
       navigate(`admin/questions/${form.dataset.courseId}/pdf-review`);
     } else if (form.id === 'pdf-question-review-form') {
       const cards = [...form.querySelectorAll('[data-pdf-import-item]')];
@@ -1615,7 +2075,7 @@ async function handleForm(event) {
         return {questionText, options, correctOptionIndexes};
       });
       if (!items.length) throw new Error('Select at least one reviewed question to import.');
-      const response = await post(form.dataset.provider === 'openrouter' ? 'openrouter-pdf-question-import' : 'pdf-question-import', {courseId: form.dataset.courseId, items});
+      const response = await post('pdf-import-job-import', {jobId: state.pdfImportReview?.jobId, items});
       const added = numeric(response.added), skipped = numeric(response.skipped);
       state.pdfImportReview = null; toast(added ? `${added} reviewed question${added === 1 ? '' : 's'} imported as Draft${skipped ? `; ${skipped} existing match${skipped === 1 ? '' : 'es'} skipped.` : '.'}` : `${skipped} selected question${skipped === 1 ? '' : 's'} already exist in this course pool; no duplicates were added.`, added ? 'success' : 'info'); navigate(`admin/questions/${form.dataset.courseId}`);
     } else if (form.id === 'question-form') {
@@ -1648,13 +2108,28 @@ async function handleForm(event) {
       const response = await uploadBackup('backup-restore', state.backupRestoreFile, {confirmation});
       state.backupRestoreFile = null; state.backupRestoreInfo = null;
       openModal('Restore complete', `<p><strong>${esc(response.restoredBackup)}</strong> was restored successfully.</p><p>A safety backup of the previous live state was created: <strong>${esc(response.safetyBackup)}</strong>.</p><p>Please verify your data before continuing.</p><div class="modal-actions"><button class="outline-btn" data-action="close-modal">Stay here</button><button class="primary-btn" data-route="admin/overview">Go to dashboard</button></div>`);
+    } else if (form.id === 'component-submission-delete-form') {
+      const values = formData(form), matricNumber = String(form.dataset.matricNumber || '');
+      const reason = String(values.reason || '').trim(), confirmation = String(values.confirmation || '').trim();
+      if (reason.length < 15) throw new Error('Provide a deletion reason of at least 15 characters.');
+      if (confirmation !== matricNumber) throw new Error(`Type ${matricNumber} exactly to confirm this deletion.`);
+      const response = await post('component-submission-delete', {resultId: form.dataset.resultId, reason, confirmation});
+      closeModal();
+      toast(`Submission deleted. Safety backup created: ${response.safetyBackup}.${response.calculationInvalidated ? ' The calculated result was reset to Not calculated.' : ''}`, 'success');
+      await render();
     } else if (form.id === 'grading-form') {
       const rows = [...form.querySelectorAll('#grading-rows tr')];
       const gradingScale = rows.map(row => Object.fromEntries([...row.querySelectorAll('input')].map(input => [input.name, ['minScore', 'maxScore', 'gradePoint'].includes(input.name) ? Number(input.value) : input.value.trim()])));
       if (!gradingScale.length) throw new Error('Add at least one grade band.');
       const integrityPolicy = Object.fromEntries([...form.querySelectorAll('.integrity-policy-row')].map(row => [row.dataset.event, {mode: row.querySelector('[name="mode"]').value, lockAfter: Number(row.querySelector('[name="lockAfter"]').value)}]));
       const examSecurity = {...(state.settings?.examSecurity || {}), optionShuffleEnabled: Boolean(form.elements.optionShuffleEnabled?.checked), fingerprintFlaggingEnabled: Boolean(form.elements.fingerprintFlaggingEnabled?.checked), concurrentIpBlockEnabled: Boolean(form.elements.concurrentIpBlockEnabled?.checked), loginRateLimitEnabled: Boolean(form.elements.loginRateLimitEnabled?.checked), loginAttemptLimit: Number(form.elements.loginAttemptLimit?.value), loginAttemptWindowMinutes: Number(form.elements.loginAttemptWindowMinutes?.value), loginLockoutMinutes: Number(form.elements.loginLockoutMinutes?.value), ipAttemptLimit: Number(form.elements.ipAttemptLimit?.value), ipAttemptWindowMinutes: Number(form.elements.ipAttemptWindowMinutes?.value)};
-      await put('settings', {gradingScale, integrityPolicy, examSecurity, resultLogoUrl: String(form.elements.resultLogoUrl?.value || 'CACSA%20Logo.jpeg').trim()});
+      const settingsPayload = {gradingScale, integrityPolicy, examSecurity, resultLogoUrl: String(form.elements.resultLogoUrl?.value || branding().logoPath).trim()};
+      if (isInstitutionAdmin()) {
+        settingsPayload.studentPortalSetupMode = Boolean(form.elements.studentPortalSetupMode?.checked);
+        settingsPayload.backup = {enabled: Boolean(form.elements.backupEnabled?.checked), time: String(form.elements.backupTime?.value || '02:00'), retentionCount: Number(form.elements.backupRetentionCount?.value)};
+        settingsPayload.auditRetention = {months: Number(form.elements.auditRetentionMonths?.value), time: String(form.elements.auditRetentionTime?.value || '02:15')};
+      }
+      await put('settings', settingsPayload);
       toast('Settings saved. Existing results were recalculated.', 'success'); render();
     } else if (form.id === 'audit-filter-form') {
       const values = formData(form);
@@ -1701,7 +2176,10 @@ async function handleForm(event) {
       if (name === 'results') state.filters.results.period = String(data.period || '');
       render();
     }
-  } catch (error) { showError(error, form); }
+  } catch (error) {
+    if (!error?.cancelled) showError(error, form);
+    if (form.id === 'pdf-question-upload-form') form.querySelector('[data-pdf-job-cancel]')?.removeAttribute('disabled');
+  }
   finally { if (submitButton?.isConnected) setBusy(submitButton, false); }
 }
 
@@ -1724,6 +2202,47 @@ async function handleAction(button) {
     return;
   }
   if (action === 'retry') return render();
+  if (action === 'clear-algebra-insight') { state.algebraInsight = null; return render(); }
+  if (action === 'discard-algebra-draft') { state.algebraDraftReview = null; return navigate('admin/algebra'); }
+  if (action === 'use-algebra-setup') {
+    const suggestion = state.algebraSetupSuggestion;
+    if (!suggestion) return toast('Generate a setup suggestion first.', 'error');
+    const fill = (root, fields) => Object.entries(fields || {}).forEach(([name, value]) => {
+      if (value === undefined || value === null || typeof value === 'object') return;
+      const input = root.querySelector(`[name="${name}"]`);
+      if (input) input.value = String(value);
+    });
+    if (suggestion.formType === 'course') {
+      courseForm(); const form = document.querySelector('#modal #course-form'); fill(form, suggestion.fields);
+      toast('Suggested values filled. Review every field and save the course yourself.', 'info'); return;
+    }
+    if (suggestion.formType === 'component') {
+      const component = (state.courses || []).flatMap(course => course.components || []).find(item => item.id === suggestion.targetComponentId);
+      if (!component) return toast('Choose a component in the setup request, then generate the suggestion again.', 'error');
+      componentForm(component); const form = document.querySelector('#modal #component-form'); fill(form, suggestion.fields);
+      toast('Suggested values filled. Review every field and save the component yourself.', 'info'); return;
+    }
+    await navigate('admin/settings');
+    const bands = suggestion.fields?.bands;
+    const container = document.querySelector('#grading-rows');
+    if (!Array.isArray(bands) || !container) return toast('Open Settings and review the grading-scale suggestion manually.', 'info');
+    container.innerHTML = bands.map(gradingRow).join('');
+    toast('Suggested grading bands filled. Review and explicitly save Settings yourself.', 'info');
+    return;
+  }
+  if (action === 'use-algebra-newsletter') {
+    const draft = state.algebraCommunicationDraft;
+    if (!draft) return toast('Generate an announcement draft first.', 'error');
+    const [subscribers, newsletters] = await Promise.all([api('newsletter-subscribers', {}, listQuery('newsletter')), api('newsletters')]);
+    state.newsletterSubscribers = normalizeList('newsletter', subscribers); state.newsletterStats = subscribers.stats || {}; state.newsletters = newsletters.items || []; state.newsletterMailConfigured = Boolean(newsletters.mailConfigured);
+    newsletterForm(draft);
+    return;
+  }
+  if (action === 'open-algebra-result-report') {
+    const draft = state.algebraResultDraft;
+    if (!draft?.resultKey) return toast('Generate a result-sheet draft first.', 'error');
+    return navigate(`admin/student-results/${draft.resultKey.replaceAll('|', '/')}`);
+  }
   if (action === 'refresh-exams') return render();
   if (action === 'calculate-student-result') {
     const route = parts(); const studentId = route[2] || state.report?.student?.id;
@@ -1738,6 +2257,22 @@ async function handleAction(button) {
       closeModal(); toast('Result calculated and saved.', 'success'); render();
     } catch (error) { closeModal(); throw error; }
     return;
+  }
+  if (action === 'reset-student-result') {
+    const studentId = parts()[2] || state.report?.student?.id;
+    const sessionId = parts()[3] || state.report?.selectedSession?.id;
+    const semesterId = parts()[4] || state.report?.selectedSemester?.id;
+    if (!studentId || !sessionId || !semesterId) return toast('Choose a student, academic session, and semester first.', 'error');
+    return confirmAction('Reset calculated result', 'This clears only the saved GPA, grade, and quality-points calculation for this academic period. Test and Exam submissions will remain unchanged and can be recalculated.', 'Reset calculation', async () => {
+      await post('reset-student-result', {studentId, sessionId, semesterId});
+      toast('Calculated result reset to Not calculated. Component submissions were kept.', 'success');
+      await render();
+    });
+  }
+  if (action === 'delete-component-submission') {
+    if (!isInstitutionAdmin()) return toast('Only this institution’s Admin can delete a component submission.', 'error');
+    const submission = (state.report?.items || []).flatMap(item => [item.testResult, item.examResult]).find(item => item?.id === id);
+    return componentSubmissionDeleteForm(submission);
   }
   if (action === 'toggle-calculator') {
     state.calculatorOpen = !state.calculatorOpen;
@@ -1762,6 +2297,18 @@ async function handleAction(button) {
   }
   if (action === 'check-session-status') return render();
   if (action === 'refresh-audit') return render();
+  if (action === 'toggle-student-portal-mode') {
+    const enabled = button.dataset.enabled !== 'true';
+    setBusy(button, true);
+    try {
+      await post('dashboard-portal-mode', {enabled});
+      state.dashboard = {...(state.dashboard || {}), studentPortalSetupMode: enabled};
+      toast(enabled ? 'Student portal setup mode is on. The public home page now shows the preparation screen.' : 'Student portal setup mode is off. The public assessment directory is visible again.', 'success');
+      await render();
+    } catch (error) { toast(error.message || 'Could not update student portal setup mode.', 'error'); }
+    finally { if (button.isConnected) setBusy(button, false); }
+    return;
+  }
   if (action === 'hide-dashboard-outcomes') {
     const selected = state.dashboardSelectedOutcomes || [];
     if (!selected.length) return toast('Select one or more outcome rows first.', 'error');
@@ -1782,6 +2329,17 @@ async function handleAction(button) {
   if (action === 'export-audit-csv') return downloadAuditExport('csv');
   if (action === 'export-audit-excel') return downloadAuditExport('excel');
   if (action === 'export-audit-pdf' || action === 'print-audit') { window.print(); return; }
+  if (action === 'generate-emergency-codes') return confirmAction('Generate emergency codes', 'This replaces every existing emergency code. The new codes will be shown once only. Continue?', 'Generate codes', async () => {
+    const response = await post('emergency-codes', {confirm: true});
+    state.emergencyCodes = response.summary || state.emergencyCodes;
+    setTimeout(() => revealEmergencyCodes(response.codes || []), 0);
+  });
+  if (action === 'copy-emergency-codes') {
+    const codes = String(button.dataset.codes || '');
+    try { await navigator.clipboard.writeText(codes); toast('Emergency codes copied. Store them offline now.', 'success'); }
+    catch { toast('Copy is unavailable in this browser. Select and copy each code manually.', 'error'); }
+    return;
+  }
   if (action === 'create-backup') {
     setBusy(button, true);
     try { const response = await post('backups', {}); toast(`Backup created: ${response.backup.filename}`, 'success'); render(); }
@@ -1794,12 +2352,38 @@ async function handleAction(button) {
     const blob = await response.blob(), url = URL.createObjectURL(blob), link = document.createElement('a');
     link.href = url; link.download = id; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); toast('Backup download started.', 'success'); return;
   }
+  if (action === 'download-audit-archive') {
+    const response = await fetch(query('audit-archives', {download: id}), {credentials: 'same-origin'});
+    if (!response.ok) { const error = await response.json().catch(() => ({})); throw new Error(error.error || 'Unable to download this audit archive.'); }
+    const blob = await response.blob(), url = URL.createObjectURL(blob), link = document.createElement('a');
+    link.href = url; link.download = id; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); toast('Audit archive download started.', 'success'); return;
+  }
   if (action === 'delete-backup') return confirmAction('Delete backup', `Permanently delete ${id}? This backup cannot be recovered after deletion.`, 'Delete backup', async () => {
     await remove('backups', {filename: id}); toast('Backup deleted.', 'success'); render();
   });
   if (action === 'restore-backup') return restoreBackupValidationForm();
   if (action === 'close-modal') return closeModal();
+  if (action === 'cancel-pdf-import-job') {
+    const jobId = String(button.dataset.jobId || '');
+    if (!jobId) return closeModal();
+    button.dataset.cancelled = 'true';
+    setBusy(button, true);
+    try {
+      await remove('pdf-import-jobs', {id: jobId});
+      closeModal();
+      toast('PDF import cancelled. Its private source file is scheduled for secure cleanup.', 'success');
+    } catch (error) {
+      delete button.dataset.cancelled;
+      throw error;
+    } finally { if (button.isConnected) setBusy(button, false); }
+    return;
+  }
   if (action === 'clear-audit-filter') { state.filters.audit = {from: '', to: '', actor: '', type: '', course: '', page: 1}; return render(); }
+  if (action === 'audit-event-detail') {
+    const event = state.auditEvents.find(item => item.id === id);
+    if (!event) return;
+    return openModal('Audit event review', `<p class="table-muted">${esc(fmtDate(event.timestamp))} --- ${esc(event.actor)} --- ${esc(String(event.actionType || '').replaceAll('_', ' '))}</p>${auditEventDetail(event)}<div class="modal-actions"><button class="primary-btn" data-action="close-modal">Close</button></div>`);
+  }
   if (action === 'audit-session-detail') {
     const session = state.auditMonitor.find(item => item.id === id);
     if (!session) return;
@@ -1814,6 +2398,43 @@ async function handleAction(button) {
       await post('exam-session-unlock', {sessionId: id});
       toast('Session unlocked. The student can resume the saved assessment.', 'success'); render();
     });
+  }
+  if (action === 'new-institution') {
+    if (!isPlatformSuperAdmin()) return toast('Only the platform Super Admin can create institutions.', 'error');
+    return institutionProvisionForm();
+  }
+  if (action === 'edit-institution-branding') {
+    if (!isPlatformSuperAdmin()) return toast('Only the platform Super Admin can edit institution branding.', 'error');
+    const institution = (state.institutions || []).find(item => String(item.id) === String(id));
+    if (!institution) return toast('Institution details are no longer available. Refresh and try again.', 'error');
+    return institutionBrandingForm(institution);
+  }
+  if (action === 'toggle-institution-status') {
+    if (!isPlatformSuperAdmin()) return toast('Only the platform Super Admin can change institution access.', 'error');
+    const institution = (state.institutions || []).find(item => String(item.id) === String(id));
+    if (!institution) return toast('Institution details are no longer available. Refresh and try again.', 'error');
+    const activating = button.dataset.active !== '1';
+    const verb = activating ? 'Reactivate' : 'Suspend';
+    const copy = activating ? `Reactivate ${institution.displayName || institution.name}? Its existing administrators and students can sign in again immediately. No data has been removed.` : `Suspend ${institution.displayName || institution.name}? Administrators and students will be blocked from signing in, but all of the institution’s data stays intact.`;
+    return confirmAction(`${verb} institution`, copy, verb, async () => {
+      const statusForm = new FormData(); statusForm.set('operation', 'set-status'); statusForm.set('institutionId', String(institution.id)); statusForm.set('active', activating ? '1' : '0');
+      await api('platform-institutions', {method: 'POST', body: statusForm});
+      state.institutions = (await api('platform-institutions')).items || []; render();
+      toast(`Institution ${activating ? 'reactivated' : 'suspended'}.`, 'success');
+    });
+  }
+  if (action === 'delete-institution') {
+    if (!isPlatformSuperAdmin()) return toast('Only the platform Super Admin can soft-delete an institution.', 'error');
+    const institution = (state.institutions || []).find(item => String(item.id) === String(id));
+    if (!institution) return toast('Institution details are no longer available. Refresh and try again.', 'error');
+    return institutionSoftDeleteForm(institution);
+  }
+  if (action === 'copy-provisioned-password') {
+    const password = String(button.dataset.password || '');
+    if (!password) return;
+    try { await navigator.clipboard.writeText(password); toast('Temporary password copied. Deliver it through a secure channel.', 'success'); }
+    catch { toast('Copy is unavailable in this browser. Select the password and copy it manually.', 'error'); }
+    return;
   }
   if (action === 'new-admin-user') return adminUserForm();
   if (action === 'toggle-sidebar') {
@@ -1830,6 +2451,15 @@ async function handleAction(button) {
     return accountSettingsForm(response.account, 'profile');
   }
   if (action === 'account-tab') return accountSettingsForm(state.account, button.dataset.tab || 'profile');
+  if (action === 'account-two-factor-enable') return twoFactorBeginForm();
+  if (action === 'account-two-factor-disable') return twoFactorDisableForm();
+  if (action === 'copy-two-factor-secret') {
+    const secret = String(button.dataset.secret || '');
+    if (!secret) return;
+    try { await navigator.clipboard.writeText(secret); toast('Setup key copied. Keep it private.', 'success'); }
+    catch { toast('Copy is unavailable in this browser. Select and copy the setup key manually.', 'error'); }
+    return;
+  }
   if (action === 'account-signout-others') {
     return confirmAction('Sign out other sessions', 'End every other active administrator session for this account? Your current session will remain active.', 'Sign out sessions', async () => {
       await post('admin-account', {operation: 'signout-others'});
@@ -2168,6 +2798,30 @@ document.addEventListener('focusin', event => {
   if (event.target.matches('[data-math-field]')) updateMathPreview(event.target);
 });
 document.addEventListener('input', event => {
+  if (event.target.matches('#platform-institution-delete-form [name="reason"], #platform-institution-delete-form [name="confirmation"]')) {
+    const form = event.target.closest('#platform-institution-delete-form');
+    const submit = form?.querySelector('[data-institution-delete-submit]');
+    if (submit) {
+      const reason = String(form.elements.reason?.value || '').trim();
+      const confirmation = String(form.elements.confirmation?.value || '').trim();
+      submit.disabled = reason.length < 15 || (confirmation !== String(form.dataset.confirmName || '') && confirmation.toLowerCase() !== String(form.dataset.confirmSlug || '').toLowerCase());
+    }
+    return;
+  }
+  if (event.target.matches('#platform-institution-form [name="accentColor"], #platform-branding-form [name="accentColor"]')) {
+    refreshAccentPreview(event.target.closest('form'));
+    return;
+  }
+  if (event.target.matches('#component-submission-delete-form [name="reason"], #component-submission-delete-form [name="confirmation"]')) {
+    const form = event.target.closest('#component-submission-delete-form');
+    const submit = form?.querySelector('[data-component-delete-submit]');
+    if (submit) {
+      const reason = String(form.elements.reason?.value || '').trim();
+      const confirmation = String(form.elements.confirmation?.value || '').trim();
+      submit.disabled = reason.length < 15 || confirmation !== String(form.dataset.matricNumber || '');
+    }
+    return;
+  }
   if (event.target.matches('#backup-restore-confirm-form [name="confirmation"]')) {
     const submit = document.querySelector('[data-restore-submit]');
     if (submit) submit.disabled = event.target.value !== 'RESTORE';
@@ -2180,6 +2834,13 @@ document.addEventListener('input', event => {
     const card = event.target.closest('[data-pdf-import-item]');
     const correct = card?.querySelectorAll('[data-pdf-import-correct]:checked').length || 0;
     const mode = card?.querySelector('[data-pdf-answer-mode]');
+    if (mode) mode.textContent = correct > 1 ? 'Multiple answers selected' : correct === 1 ? 'Single answer selected' : 'Choose a correct answer';
+    return;
+  }
+  if (event.target.matches('[data-algebra-draft-include], [data-algebra-draft-correct]')) {
+    const card = event.target.closest('[data-algebra-draft-item]');
+    const correct = card?.querySelectorAll('[data-algebra-draft-correct]:checked').length || 0;
+    const mode = card?.querySelector('[data-algebra-answer-mode]');
     if (mode) mode.textContent = correct > 1 ? 'Multiple answers selected' : correct === 1 ? 'Single answer selected' : 'Choose a correct answer';
     return;
   }

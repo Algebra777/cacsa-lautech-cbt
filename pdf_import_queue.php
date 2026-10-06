@@ -26,7 +26,9 @@ function pdfQueueNormaliseItems(mixed $decoded, int $maximum, string $provider):
         if ($text === '' || count($options) < 2 || count($options) > 10 || in_array('', $options, true)) continue;
         $correct = array_values(array_unique(array_filter(array_map('intval', (array)($row['correctOptionIndexes'] ?? [])), static fn(int $index): bool => $index >= 0 && $index < count($options))));
         $fingerprint = hash('sha256', strtolower((string)(preg_replace('/\s+/u', ' ', $text) ?? $text)));
-        if (isset($fingerprints[$fingerprint])) throw new PdfImportJobFailure('duplicate_provider_output', $provider . ' repeated question ' . ($fingerprints[$fingerprint] + 1) . '; no questions were saved.');
+        // Provider output is untrusted. Keep the first source-order occurrence and discard repeats;
+        // never turn a repeated model entry into a repeated draft question.
+        if (isset($fingerprints[$fingerprint])) continue;
         $fingerprints[$fingerprint] = count($items);
         $items[] = ['questionText' => $text, 'options' => $options, 'correctOptionIndexes' => $correct, 'confidence' => (($row['confidence'] ?? '') === 'high' && $correct) ? 'high' : 'low'];
     }
@@ -41,6 +43,37 @@ function pdfQueueJson(string $text): mixed {
     $start = strpos($text, '{'); $end = strrpos($text, '}');
     return $start !== false && $end !== false && $end > $start ? json_decode(substr($text, $start, $end - $start + 1), true) : null;
 }
+/**
+ * Extract conventional question-bank PDFs without asking a model to reconstruct data which is
+ * already explicit in the document. This protects source order, answer keys, and uniqueness.
+ * Unrecognised layouts intentionally return an empty array so the AI path remains the fallback.
+ */
+function pdfQueueStructuredItems(array $textPages, int $maximum): array {
+    $text = trim(implode("\n", $textPages));
+    if ($text === '') return [];
+    preg_match_all('/(?:^|\R)\s*Q(?:uestion)?\s*(\d{1,4})\s*[.\):\-]\s*(.*?)(?=(?:\R\s*Q(?:uestion)?\s*\d{1,4}\s*[.\):\-])|\z)/is', $text, $blocks, PREG_SET_ORDER);
+    if (!$blocks) return [];
+    $items = []; $seen = [];
+    foreach ($blocks as $block) {
+        if (count($items) >= $maximum) break;
+        $body = trim((string)$block[2]);
+        if (!preg_match('/^(.*?)(?=\R\s*[A-J]\s*[.)])/is', $body, $questionMatch)) continue;
+        $questionText = trim((string)$questionMatch[1]);
+        $beforeAnswer = preg_split('/\R\s*Answer\s*:\s*[A-J]\b/is', $body, 2)[0] ?? '';
+        preg_match_all('/(?:^|\R)\s*([A-J])\s*[.)]\s*(.*?)(?=(?:\R\s*[A-J]\s*[.)])|\z)/is', $beforeAnswer, $optionMatches, PREG_SET_ORDER);
+        $options = []; $letters = [];
+        foreach ($optionMatches as $option) { $letters[] = strtoupper((string)$option[1]); $options[] = trim((string)$option[2]); }
+        if ($questionText === '' || count($options) < 2 || count($options) > 10 || in_array('', $options, true)) continue;
+        if (!preg_match('/\bAnswer\s*:\s*([A-J])\b/i', $body, $answerMatch)) continue;
+        $answerIndex = array_search(strtoupper((string)$answerMatch[1]), $letters, true);
+        if ($answerIndex === false) continue;
+        $fingerprint = hash('sha256', strtolower((string)(preg_replace('/\s+/u', ' ', $questionText) ?? $questionText)));
+        if (isset($seen[$fingerprint])) continue;
+        $seen[$fingerprint] = true;
+        $items[] = ['questionText' => $questionText, 'options' => $options, 'correctOptionIndexes' => [$answerIndex], 'confidence' => 'high'];
+    }
+    return $items;
+}
 function pdfQueueProviderItems(string $provider, string $text, int $limit, string $portalTitle): array {
     $label = $provider === 'openrouter' ? 'OpenRouter' : 'Gemini';
     $prompt = 'Extract the first complete assessment questions in this source section, up to ' . $limit . '. Page markers preserve source order; read every marked page before producing the next distinct question. Never invent a correct answer. Return only strict JSON: {"questions":[{"questionText":"...","options":["..."],"correctOptionIndexes":[0],"confidence":"high"}],"truncated":false}. Each question needs 2 to 10 options and zero-based answer indexes. Mark confidence low whenever the answer key is missing, ambiguous, or uncertain. Every returned item must be different and in source order. Never repeat a question merely to reach a count.\n\nPDF TEXT:\n' . $text;
@@ -51,7 +84,9 @@ function pdfQueueProviderItems(string $provider, string $text, int $limit, strin
         $url = 'https://openrouter.ai/api/v1/chat/completions'; $headers = ['Content-Type: application/json','Authorization: Bearer ' . $key,'X-Title: ' . $portalTitle];
     } else {
         $key = trim((string)getenv('GEMINI_API_KEY')); if ($key === '') throw new PdfImportJobFailure('provider_not_configured', 'Gemini PDF import is not configured.', false);
-        $payload = ['model'=>(string)(getenv('CBT_GEMINI_MODEL') ?: 'gemini-3.8-flash'),'input'=>$prompt,'generation_config'=>['temperature'=>0,'thinking_level'=>'low','max_output_tokens'=>24000]];
+        // Each section returns at most 20 multiple-choice questions. 8k tokens is ample for that
+        // schema while avoiding an unnecessarily expensive 24k-token capacity reservation.
+        $payload = ['model'=>(string)(getenv('CBT_GEMINI_PDF_MODEL') ?: getenv('CBT_GEMINI_MODEL') ?: 'gemini-3.1-flash-lite'),'input'=>$prompt,'generation_config'=>['temperature'=>0,'thinking_level'=>'low','max_output_tokens'=>8000]];
         $url = 'https://generativelanguage.googleapis.com/v1beta/interactions'; $headers = ['Content-Type: application/json','x-goog-api-key: ' . $key];
     }
     $curl = curl_init($url); curl_setopt_array($curl, [CURLOPT_POST=>true,CURLOPT_RETURNTRANSFER=>true,CURLOPT_CONNECTTIMEOUT=>20,CURLOPT_TIMEOUT=>180,CURLOPT_HTTPHEADER=>$headers,CURLOPT_POSTFIELDS=>json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)]);
@@ -75,7 +110,18 @@ function pdfQueueExtract(string $path, string $provider, string $portalTitle): a
     if (count($pages) > $limits['pages']) throw new PdfImportJobFailure('page_limit', 'This PDF has more than ' . $limits['pages'] . ' pages. Split it by topic or chapter, keeping questions and answer keys together.', false);
     $textPages = []; foreach ($pages as $page) { $text = trim((string)$page->getText()); if ($text !== '') $textPages[] = $text; }
     if (!$textPages) throw new PdfImportJobFailure('no_extractable_text', 'This PDF has no extractable text. Upload a text-based PDF; scanned image-only PDFs are not supported yet.', false);
+    $structured = pdfQueueStructuredItems($textPages, $limits['questions']);
+    if ($structured) return ['pages'=>count($pages),'items'=>$structured,'limits'=>$limits];
     $items = []; foreach (pdfQueueSections($textPages) as $section) { $remaining = $limits['questions'] - count($items); if ($remaining <= 0) break; array_push($items, ...pdfQueueProviderItems($provider, $section, min(20, $remaining), $portalTitle)); }
-    $items = array_slice($items, 0, $limits['questions']); $seen = []; foreach ($items as $index => $item) { $fingerprint = hash('sha256', strtolower((string)(preg_replace('/\s+/u', ' ', $item['questionText']) ?? $item['questionText']))); if (isset($seen[$fingerprint])) throw new PdfImportJobFailure('duplicate_provider_output', $limits['label'] . ' repeated question ' . ($seen[$fingerprint] + 1) . '; no questions were saved.'); $seen[$fingerprint] = $index; }
+    $items = array_slice($items, 0, $limits['questions']);
+    $distinct = []; $seen = [];
+    foreach ($items as $item) {
+        $fingerprint = hash('sha256', strtolower((string)(preg_replace('/\s+/u', ' ', $item['questionText']) ?? $item['questionText'])));
+        if (isset($seen[$fingerprint])) continue;
+        $seen[$fingerprint] = true;
+        $distinct[] = $item;
+    }
+    if (!$distinct) throw new PdfImportJobFailure('no_reviewable_questions', $limits['label'] . ' did not return any distinct reviewable questions.');
+    $items = $distinct;
     return ['pages'=>count($pages),'items'=>$items,'limits'=>$limits];
 }

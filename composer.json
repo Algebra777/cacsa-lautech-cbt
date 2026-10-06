@@ -1,6 +1,6 @@
 {
-    "name": "cacsa-lautech/cbt",
-    "description": "CACSA LAUTECH computer-based testing system",
+    "name": "berevion/platform",
+    "description": "Berevion multi-institution computer-based assessment platform",
     "license": "proprietary",
     "require": {
         "smalot/pdfparser": "^2.12"

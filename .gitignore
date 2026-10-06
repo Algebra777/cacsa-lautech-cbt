@@ -2,3 +2,5 @@
 cbt-data.json
 .cbt-data.lock
 database/backups/*.json
+database/backups/**/*.json
+database/.two-factor.key

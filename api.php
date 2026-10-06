@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-class InstitutionSuspendedException extends RuntimeException {}
-final class InstitutionUnavailableException extends RuntimeException {}
 class AlgebraProviderException extends RuntimeException {
     public function __construct(string $message, public readonly int $httpStatus = 502) { parent::__construct($message); }
 }
@@ -648,9 +646,34 @@ function pdfImportJobPayload(array $row, bool $includeItems = false): array {
     return ['id' => (string)$row['id'], 'courseId' => (string)$row['course_id'], 'provider' => (string)$row['provider'], 'status' => (string)$row['status'], 'filename' => (string)$row['source_filename'], 'pages' => $row['page_count'] === null ? null : (int)$row['page_count'], 'items' => is_array($items) ? $items : [], 'lowConfidence' => $row['low_confidence_count'] === null ? 0 : (int)$row['low_confidence_count'], 'attemptCount' => (int)$row['attempt_count'], 'error' => in_array((string)$row['status'], ['failed','cancelled'], true) ? (string)($row['error_message'] ?? '') : '', 'createdAt' => mysqlIso($row['created_at']), 'reviewExpiresAt' => mysqlIso($row['review_expires_at'])];
 }
 function currentPdfImportJob(string $jobId, array $session, bool $forUpdate = false): ?array {
-    $statement = mysqlAppPdo()->prepare('SELECT * FROM pdf_import_jobs WHERE institution_id=:institution_id AND id=:id AND requested_by_admin_id=:admin_id LIMIT 1' . ($forUpdate ? ' FOR UPDATE' : ''));
-    $statement->execute(['institution_id' => mysqlCurrentInstitutionId(), 'id' => $jobId, 'admin_id' => (string)($session['userId'] ?? '')]);
+    $requester = pdfImportRequester($session);
+    $field = $requester['scope'] === 'platform' ? 'requested_by_platform_admin_id' : 'requested_by_admin_id';
+    $statement = mysqlAppPdo()->prepare('SELECT * FROM pdf_import_jobs WHERE institution_id=:institution_id AND id=:id AND requested_by_scope=:scope AND ' . $field . '=:requester_id LIMIT 1' . ($forUpdate ? ' FOR UPDATE' : ''));
+    $statement->execute(['institution_id' => mysqlCurrentInstitutionId(), 'id' => $jobId, 'scope' => $requester['scope'], 'requester_id' => $requester['id']]);
     return $statement->fetch() ?: null;
+}
+/** Return only the current caller's recoverable import for one explicitly scoped course. */
+function latestRecoverablePdfImportJob(string $courseId, array $session): ?array {
+    $requester = pdfImportRequester($session);
+    $field = $requester['scope'] === 'platform' ? 'requested_by_platform_admin_id' : 'requested_by_admin_id';
+    $statement = mysqlAppPdo()->prepare("SELECT * FROM pdf_import_jobs WHERE institution_id=:institution_id AND course_id=:course_id AND requested_by_scope=:scope AND {$field}=:requester_id AND status IN ('queued','running','review_ready') ORDER BY created_at DESC LIMIT 1");
+    $statement->execute(['institution_id' => mysqlCurrentInstitutionId(), 'course_id' => $courseId, 'scope' => $requester['scope'], 'requester_id' => $requester['id']]);
+    return $statement->fetch() ?: null;
+}
+/** Keep platform identities structurally separate from tenant admin_users.
+ * Platform work is accepted only from an explicit /i/{slug}/ tenant route;
+ * it never impersonates a tenant administrator. */
+function pdfImportRequester(array $session): array {
+    $scope = (string)($session['scope'] ?? 'institution');
+    $id = trim((string)($session['userId'] ?? ''));
+    if ($scope === 'platform') {
+        if (!requestHasExplicitInstitutionPath() || $id === '') respond(['error' => 'Select an institution before creating a PDF import job.'], 403);
+        return ['scope' => 'platform', 'id' => $id];
+    }
+    if ($scope !== 'institution' || $id === '' || $id === 'bootstrap-superadmin') {
+        respond(['error' => 'Sign in with this institution’s Admin account before creating a PDF import job.'], 403);
+    }
+    return ['scope' => 'institution', 'id' => $id];
 }
 function schedulePdfImportSourceExpiry(PDO $pdo, int $institutionId, string $sourceKey): void {
     mysqlMarkInstitutionAssetUnreferenced($pdo, $institutionId, $sourceKey, PDF_IMPORT_SOURCE_RETENTION_HOURS);
@@ -2473,7 +2496,9 @@ function algebraGeminiText(string $instruction, int $maximumTokens = 9000): stri
     $apiKey = trim((string)getenv('GEMINI_API_KEY'));
     if ($apiKey === '') throw new AlgebraProviderException('Algebra is not configured yet. Add GEMINI_API_KEY to the server .env file, then try again.', 503);
     if (!function_exists('curl_init')) throw new AlgebraProviderException('Algebra requires the PHP cURL extension, which is not enabled on this server.', 503);
-    $payload = ['model' => (string)(getenv('CBT_GEMINI_MODEL') ?: 'gemini-3.8-flash'), 'input' => $instruction, 'generation_config' => ['temperature' => 0.2, 'thinking_level' => 'low', 'max_output_tokens' => $maximumTokens]];
+    // Algebra has its own provider setting so a capacity issue cannot alter PDF
+    // imports or any other Gemini-backed workflow.
+    $payload = ['model' => (string)(getenv('CBT_ALGEBRA_GEMINI_MODEL') ?: getenv('CBT_GEMINI_MODEL') ?: 'gemini-3.1-flash-lite'), 'input' => $instruction, 'generation_config' => ['temperature' => 0.2, 'thinking_level' => 'low', 'max_output_tokens' => $maximumTokens]];
     $raw = false; $error = ''; $status = 0; $response = null;
     foreach ([0, 400000, 1200000] as $delay) {
         if ($delay) usleep($delay);
@@ -2559,7 +2584,9 @@ function mysqlAlgebraQuestionDraft(): never {
     $pdo = mysqlAppPdo(); $requestId = algebraCreateRequest($pdo, $session, 'question_draft', $request);
     try {
         $instruction = 'You draft assessment questions for an administrator. Return ONLY strict JSON with this exact shape: {"questions":[{"questionText":"...","options":["..."],"correctOptionIndexes":[0],"confidence":"high"}]}. Produce exactly ' . $count . ' distinct questions for course ' . $course['code'] . ' (' . $course['title'] . '), topic "' . $topic . '", difficulty "' . $difficulty . '". Produce exactly ' . $single . ' single-answer questions and ' . $multiple . ' multiple-answer questions. Each question needs 2-10 complete options and zero-based correct indexes. Use only defensible, unambiguous answer keys. Never include publishing targets, grades, student data, prose outside JSON, or invented source citations. Administrator guidance: ' . ($brief !== '' ? $brief : 'None.');
-        $items = algebraQuestionItems(algebraDecodeJson(algebraGeminiText($instruction, 12000)), $count);
+        // Multiple-choice drafts are compact JSON. Reserve output in proportion to
+        // the requested count rather than holding a 12k-token slot for every call.
+        $items = algebraQuestionItems(algebraDecodeJson(algebraGeminiText($instruction, min(8000, max(3000, $count * 260)))), $count);
         algebraFinishRequest($pdo, $requestId, 'completed', ['items'=>$items]);
         algebraAudit($pdo, $session, 'algebra_question_draft_generated', 'course', $courseId, ['course'=>$course['code'], 'requestId'=>$requestId, 'count'=>count($items), 'status'=>'review_required']);
         respond(['requestId'=>$requestId, 'courseId'=>$courseId, 'items'=>$items, 'reviewRequired'=>true, 'status'=>'draft_only']);
@@ -3676,7 +3703,7 @@ if ($action === 'strict-question-import' && $method === 'POST') {
 
 if ($action === 'pdf-import-jobs' && $method === 'POST') {
     if (!mysqlStorageEnabled()) respond(['error' => 'Queued PDF import requires MySQL storage.'], 503);
-    $session = auth(true); $provider = strtolower(trim((string)($_POST['provider'] ?? 'gemini')));
+    $session = auth(true); $requester = pdfImportRequester($session); $provider = strtolower(trim((string)($_POST['provider'] ?? 'gemini')));
     if (!in_array($provider, ['gemini','openrouter'], true)) respond(['error' => 'Choose Gemini or OpenRouter for this PDF import.'], 422);
     if ($provider === 'openrouter') { enforceRateLimit($data, 'openrouter-pdf-parse-' . adminActorId(), 1, 30); enforceSystemRateLimit($data, 'openrouter-pdf-parse-daily', 30, 86400, 'OpenRouter PDF-import'); }
     else { enforceRateLimit($data, 'gemini-pdf-parse-' . adminActorId(), 1, 15); enforceSystemRateLimit($data, 'gemini-pdf-parse-daily', 50, 86400); }
@@ -3685,9 +3712,9 @@ if ($action === 'pdf-import-jobs' && $method === 'POST') {
     $source = queuePdfImportSource($provider); $pdo = mysqlAppPdo();
     try {
         $pdo->beginTransaction(); mysqlRegisterInstitutionAsset($pdo, mysqlCurrentInstitutionId(), 'pdf_import_source', $source['sourceKey'], (string)($session['email'] ?? ''), ['sourceFilename' => $source['filename'], 'provider' => $provider, 'temporary' => true]);
-        $insert = $pdo->prepare("INSERT INTO pdf_import_jobs (institution_id,id,course_id,requested_by_admin_id,requested_by_email,provider,status,source_key,source_filename,source_sha256,source_size_bytes,available_at,created_at,updated_at) VALUES (:institution_id,:id,:course_id,:admin_id,:email,:provider,'queued',:source_key,:source_filename,:source_sha256,:source_size_bytes,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))");
-        $insert->execute(['institution_id' => mysqlCurrentInstitutionId(), 'id' => $source['id'], 'course_id' => $courseId, 'admin_id' => (string)($session['userId'] ?? ''), 'email' => (string)($session['email'] ?? ''), 'provider' => $provider, 'source_key' => $source['sourceKey'], 'source_filename' => $source['filename'], 'source_sha256' => $source['checksum'], 'source_size_bytes' => $source['size']]);
-        mysqlFastAudit($pdo, 'admin', (string)($session['email'] ?? adminActorId()), $provider . '_pdf_import_queued', 'course', $courseId, ['course' => $course['code'] ?? '', 'jobId' => $source['id'], 'filename' => $source['filename'], 'provider' => $provider, 'status' => 'queued']);
+        $insert = $pdo->prepare("INSERT INTO pdf_import_jobs (institution_id,id,course_id,requested_by_admin_id,requested_by_platform_admin_id,requested_by_email,requested_by_scope,provider,status,source_key,source_filename,source_sha256,source_size_bytes,available_at,created_at,updated_at) VALUES (:institution_id,:id,:course_id,:admin_id,:platform_admin_id,:email,:requester_scope,:provider,'queued',:source_key,:source_filename,:source_sha256,:source_size_bytes,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))");
+        $insert->execute(['institution_id' => mysqlCurrentInstitutionId(), 'id' => $source['id'], 'course_id' => $courseId, 'admin_id' => $requester['scope'] === 'institution' ? $requester['id'] : null, 'platform_admin_id' => $requester['scope'] === 'platform' ? $requester['id'] : null, 'email' => (string)($session['email'] ?? ''), 'requester_scope' => $requester['scope'], 'provider' => $provider, 'source_key' => $source['sourceKey'], 'source_filename' => $source['filename'], 'source_sha256' => $source['checksum'], 'source_size_bytes' => $source['size']]);
+        mysqlFastAudit($pdo, 'admin', (string)($session['email'] ?? adminActorId()), $provider . '_pdf_import_queued', 'course', $courseId, ['course' => $course['code'] ?? '', 'jobId' => $source['id'], 'filename' => $source['filename'], 'provider' => $provider, 'status' => 'queued', 'requesterScope' => $requester['scope']]);
         $pdo->commit();
     } catch (Throwable $error) { if ($pdo->inTransaction()) $pdo->rollBack(); $path = mysqlStorageAbsolutePath($source['sourceKey']); if ($path && is_file($path)) @unlink($path); throw $error; }
     respond(['job' => ['id' => $source['id'], 'status' => 'queued', 'filename' => $source['filename'], 'provider' => $provider]], 202);
@@ -3695,7 +3722,13 @@ if ($action === 'pdf-import-jobs' && $method === 'POST') {
 if ($action === 'pdf-import-jobs' && $method === 'GET') {
     if (!mysqlStorageEnabled()) respond(['error' => 'Queued PDF import requires MySQL storage.'], 503);
     $session = auth(true); $jobId = trim((string)($_GET['id'] ?? ''));
-    if (!preg_match('/^[a-f0-9]{32}$/', $jobId)) respond(['error' => 'Choose a valid PDF import job.'], 422);
+    if ($jobId !== '' && !preg_match('/^[a-f0-9]{32}$/', $jobId)) respond(['error' => 'Choose a valid PDF import job.'], 422);
+    if ($jobId === '') {
+        $courseId = trim((string)($_GET['courseId'] ?? ''));
+        if ($courseId === '') respond(['error' => 'Choose a course to resume its PDF import.'], 422);
+        $job = latestRecoverablePdfImportJob($courseId, $session);
+        respond(['job' => $job ? pdfImportJobPayload($job, true) : null]);
+    }
     $job = currentPdfImportJob($jobId, $session); if (!$job) respond(['error' => 'PDF import job not found.'], 404);
     respond(['job' => pdfImportJobPayload($job, true)]);
 }
