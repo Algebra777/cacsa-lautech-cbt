@@ -35,7 +35,7 @@ const state = {
   studentAccess: readStored('algeStudentSession'),
   attempt: readStored('algeExamAttempt'),
   exams: [], landingStatus: {openComponents: 0, studentsTesting: 0, clientIp: 'Unavailable', singleSessionLockActive: false}, activePeriod: {sessionLabel: '', semesterLabel: ''}, landingFilters: {search: '', type: 'all', category: 'all'}, adminExams: [], courses: [], academicSessions: [], semesters: [], students: [], questions: [], results: [],
-  dashboard: null, dashboardSelectedOutcomes: [], settings: null, backups: {items: [], settings: {}, nextRunAt: null, directory: 'database/backups/'}, emergencyCodes: {active: false, remaining: 0, generatedAt: null}, backupRestoreFile: null, backupRestoreInfo: null, strictImportReview: null, pdfImportReview: null, algebraDraftReview: null, algebraInsight: null, algebraSetupSuggestion: null, algebraAuditDigest: null, algebraAnomalyFlags: null, algebraCommunicationDraft: null, algebraResultDraft: null, algebraResults: [], algebraSetupTargetComponentId: '', questionCourseId: '', questionTargetModal: null, report: null, review: null, auditMonitor: [], auditEvents: [], auditArchives: {items: [], settings: {}, directory: 'database/backups/'}, roles: [], adminUsers: [], institutions: [], adminApprovals: {pending: [], recent: [], mailConfigured: false}, pendingApprovalCount: 0, account: null, accountTab: 'profile', newsletterSubscribers: [], newsletterStats: null, newsletters: [], newsletterMailConfigured: false, resultPeriods: [],
+  dashboard: null, dashboardSelectedOutcomes: [], settings: null, backups: {items: [], settings: {}, nextRunAt: null, directory: 'database/backups/'}, emergencyCodes: {active: false, remaining: 0, generatedAt: null}, backupRestoreFile: null, backupRestoreInfo: null, strictImportReview: null, pdfImportReview: null, algebraDraftReview: null, algebraInsight: null, algebraSetupSuggestion: null, algebraAuditDigest: null, algebraAnomalyFlags: null, algebraCommunicationDraft: null, algebraResultDraft: null, algebraResults: [], algebraSetupTargetComponentId: '', questionCourseId: '', questionTargetModal: null, report: null, review: null, auditMonitor: [], auditEvents: [], auditArchives: {items: [], settings: {}, directory: 'database/backups/'}, roles: [], adminUsers: [], institutions: [], adminApprovals: {pending: [], recent: [], mailConfigured: false}, pendingApprovalCount: 0, supportInbox: {items: [], unreadCount: 0, meta: {}, institutions: []}, supportThread: null, account: null, accountTab: 'profile', newsletterSubscribers: [], newsletterStats: null, newsletters: [], newsletterMailConfigured: false, resultPeriods: [],
   selectedExamId: null, questionIndex: 0, secondsLeft: 0, timerId: null, availabilityRefreshId: null, landingCountdownId: null, landingCountFrame: null, landingLiveValues: {}, landingStepObserver: null, landingStepsRevealPlayed: false, headlineRotationId: null, loginCountdownId: null, auditPollId: null, approvalPollId: null, devtoolsTimer: null, integrityLast: {}, saveState: 'saved', examTextScale: Math.max(.85, Math.min(1.35, Number(sessionStorage.getItem('algeExamTextScale')) || 1)), calculatorOpen: false, calculatorValue: '0', sidebarOpen: sessionStorage.getItem('algeSidebarOpen') == null ? !window.matchMedia('(max-width: 900px)').matches : sessionStorage.getItem('algeSidebarOpen') !== 'false', landingHeroEntrancePlayed: false,
   loadSerial: 0, route: '', modalTrigger: null, csrfToken: '', passwordResetEmail: sessionStorage.getItem('algeAdminPasswordResetEmail') || '', theme: localStorage.getItem('algeTheme') || 'dark', branding: null, platformBranding: null,
   filters: {
@@ -46,6 +46,7 @@ const state = {
     results: {q: '', sort: 'latestSubmittedAt', dir: 'desc', page: 1, status: '', period: ''},
     audit: {from: '', to: '', actor: '', type: '', course: '', page: 1},
     newsletter: {q: '', sort: 'subscribedAt', dir: 'desc', page: 1, status: ''},
+    messages: {status: '', institutionId: '', page: 1},
     outcomes: {page: 1}
   },
   meta: {}
@@ -176,6 +177,7 @@ function displayIp(value) {
 function numeric(value, fallback = 0) { const number = Number(value); return Number.isFinite(number) ? number : fallback; }
 function can(permission) {
   if (permission === 'institutions') return isPlatformSuperAdmin() && !TENANT_SLUG;
+  if (permission === 'messages') return isPlatformSuperAdmin() ? !TENANT_SLUG : (!state.adminUser?.permissions || state.adminUser.permissions.includes('messages'));
   if (permission === 'algebra') return (state.adminUser?.scope === 'institution' && ['admin', 'superadmin'].includes(String(state.adminUser?.roleId || ''))) || (isPlatformSuperAdmin() && Boolean(TENANT_SLUG));
   if (permission === 'roles' || permission === 'users' || permission === 'approvals' || permission === 'backups' || permission === 'emergency-codes') return !state.adminUser || isInstitutionAdmin();
   if (permission === 'newsletter') return true;
@@ -206,7 +208,8 @@ function sidebarIcon(id) {
     'emergency-codes': '<path d="M10 2.5 16 5v4.4c0 4-2.5 6.9-6 8.1-3.5-1.2-6-4.1-6-8.1V5z"/><path d="M10 6.2v4.5M10 13.5h.1"/>',
     settings: '<circle cx="10" cy="10" r="2.6"/><path d="M10 2.8v2M10 15.2v2M17.2 10h-2M4.8 10h-2M15.1 4.9l-1.4 1.4M6.3 13.7l-1.4 1.4M15.1 15.1l-1.4-1.4M6.3 6.3 4.9 4.9"/>',
     institutions: '<path d="M3 17h14M4.5 17V7.5h11V17M3.5 7.5 10 3l6.5 4.5M7 10h2M11 10h2M7 13h2M11 13h2"/>',
-    algebra: '<path d="M4 3.5h8.5L16 7v9.5H4z"/><path d="M12.5 3.5V7H16M7 11h6M7 14h4"/><path d="m8 8.5 1.3 1.3 2.5-2.5"/>'
+    algebra: '<path d="M4 3.5h8.5L16 7v9.5H4z"/><path d="M12.5 3.5V7H16M7 11h6M7 14h4"/><path d="m8 8.5 1.3 1.3 2.5-2.5"/>',
+    messages: '<path d="M3 4.5h14v9.2a2 2 0 0 1-2 2H8l-3.8 2.7v-2.7H5a2 2 0 0 1-2-2z"/><path d="M6.5 8h7M6.5 11h4.7"/>'
   };
   return `<svg class="sidebar-icon" viewBox="0 0 20 20" aria-hidden="true">${paths[id] || paths.overview}</svg>`;
 }
@@ -288,7 +291,7 @@ function query(action, params = {}) {
 async function api(action, options = {}, params = {}) {
   const adminAuthVersion = state.adminAuthVersion;
   const {admin: requireAdmin = false, ...fetchOptions} = options;
-  const adminAction = requireAdmin || ['admin-logout', 'admin-account', 'platform-institutions', 'students', 'students-bulk', 'exam-password', 'questions', 'questions-bulk', 'questions-bulk-delete', 'questions-publish-target', 'questions-unpublish-target', 'questions-deduplicate', 'strict-question-parse', 'strict-question-import', 'pdf-question-parse', 'pdf-question-import', 'openrouter-pdf-question-parse', 'openrouter-pdf-question-import', 'pdf-import-jobs', 'pdf-import-job-import', 'algebra-question-draft', 'algebra-question-import', 'algebra-performance-insight', 'algebra-setup-suggestion', 'algebra-audit-digest', 'algebra-anomaly-flags', 'algebra-communication-draft', 'algebra-result-report', 'results', 'result-review', 'calculate-student-result', 'reset-student-result', 'component-submission-delete', 'settings', 'student-results', 'dashboard', 'dashboard-outcomes', 'audit-monitor', 'audit-events', 'audit-archives', 'exam-session-unlock', 'roles', 'admin-users', 'admin-approvals', 'newsletter-subscribers', 'newsletters', 'courses', 'course-components', 'academic-sessions', 'semesters', 'backups', 'emergency-codes'].includes(action) || (action === 'exams' && options.method && options.method !== 'GET');
+  const adminAction = requireAdmin || ['admin-logout', 'admin-account', 'platform-institutions', 'support-threads', 'support-thread', 'platform-support-threads', 'platform-support-thread', 'students', 'students-bulk', 'exam-password', 'questions', 'questions-bulk', 'questions-bulk-delete', 'questions-publish-target', 'questions-unpublish-target', 'questions-deduplicate', 'strict-question-parse', 'strict-question-import', 'pdf-question-parse', 'pdf-question-import', 'openrouter-pdf-question-parse', 'openrouter-pdf-question-import', 'pdf-import-jobs', 'pdf-import-job-import', 'algebra-question-draft', 'algebra-question-import', 'algebra-performance-insight', 'algebra-setup-suggestion', 'algebra-audit-digest', 'algebra-anomaly-flags', 'algebra-communication-draft', 'algebra-result-report', 'results', 'result-review', 'calculate-student-result', 'reset-student-result', 'component-submission-delete', 'settings', 'student-results', 'dashboard', 'dashboard-outcomes', 'audit-monitor', 'audit-events', 'audit-archives', 'exam-session-unlock', 'roles', 'admin-users', 'admin-approvals', 'newsletter-subscribers', 'newsletters', 'courses', 'course-components', 'academic-sessions', 'semesters', 'backups', 'emergency-codes'].includes(action) || (action === 'exams' && options.method && options.method !== 'GET');
   const isAdminAction = adminAction || action === 'dashboard-portal-mode';
   const mutating = ['POST', 'PUT', 'DELETE'].includes(String(options.method || 'GET').toUpperCase());
   if (mutating && action !== 'auth-csrf') await refreshCsrfToken();
@@ -706,6 +709,14 @@ async function loadAdmin(route) {
     state.adminUser = {...state.adminUser, id: accountSnapshot.account.id, name: accountSnapshot.account.name, email: accountSnapshot.account.email, roleId: accountSnapshot.account.roleId, role: accountSnapshot.account.roleName || state.adminUser?.role, scope: accountSnapshot.account.scope || state.adminUser?.scope || '', permissions: accountSnapshot.account.permissions || []};
     saveStored('algeAdminUser', state.adminUser);
   }
+  // A platform Super Admin may deliberately enter a tenant route for settings
+  // or support access, but the platform-wide Messages inbox has no tenant
+  // context. Redirect rather than issuing the tenant-only endpoint and
+  // presenting a misleading "Resource not found" error.
+  if (page === 'messages' && isPlatformSuperAdmin() && TENANT_SLUG) {
+    window.location.assign(`${APP_ROOT}/admin/messages`);
+    return;
+  }
   // A newly provisioned tenant Admin may only use admin-account until their
   // one-time password is replaced. Do not preload approval data here: that
   // protected request would correctly be rejected and previously hid the
@@ -713,6 +724,12 @@ async function loadAdmin(route) {
   if (isInstitutionAdmin() && !accountSnapshot.account?.mustChangePassword) {
     const summary = await api('admin-approvals', {}, {summary: 'true'});
     state.pendingApprovalCount = numeric(summary.summary?.pending);
+  }
+  const platformMessages = isPlatformSuperAdmin() && !TENANT_SLUG;
+  if (can('messages') && !accountSnapshot.account?.mustChangePassword) {
+    const summaryAction = platformMessages ? 'platform-support-threads' : 'support-threads';
+    const summary = await api(summaryAction, {}, {page: 1, pageSize: 5});
+    state.supportInbox = {...state.supportInbox, unreadCount: numeric(summary.unreadCount), meta: summary.meta || {}};
   }
   if (page === 'overview') {
     state.dashboard = await api('dashboard', {}, {outcomePage: state.filters.outcomes.page, outcomePageSize: 5});
@@ -753,6 +770,18 @@ async function loadAdmin(route) {
     state.courses = courses.items || []; state.algebraResults = results.items || [];
   }
   if (page === 'institutions') state.institutions = (await api('platform-institutions')).items || [];
+  if (page === 'messages') {
+    const filter = state.filters.messages;
+    const action = platformMessages ? 'platform-support-threads' : 'support-threads';
+    const params = {status: filter.status, page: filter.page, pageSize: 20};
+    if (platformMessages && filter.institutionId) params.institutionId = filter.institutionId;
+    const listPromise = api(action, {}, params);
+    const institutionsPromise = platformMessages ? api('platform-institutions') : Promise.resolve({items: []});
+    const [inbox, institutions] = await Promise.all([listPromise, institutionsPromise]);
+    state.supportInbox = {...inbox, institutions: institutions.items || []};
+    if (route[2]) state.supportThread = await api(platformMessages ? 'platform-support-thread' : 'support-thread', {}, {id: route[2]});
+    else state.supportThread = null;
+  }
   if (page === 'results') {
     const response = await api('results', {}, {...listQuery('results'), ...resultPeriodParts()});
     state.results = normalizeList('results', response); state.resultPeriods = response.periods || [];
@@ -1008,12 +1037,13 @@ function adminShell(content) {
   const page = parts()[1] || 'overview';
   const active = page === 'student-results' ? 'students' : page === 'review' ? 'results' : page;
   const approvalTitle = `Pending Approval <span class="nav-badge ${state.pendingApprovalCount ? '' : 'is-empty'}" data-approval-badge>${numeric(state.pendingApprovalCount)}</span>`;
-  const pageTitles = {overview: 'Overview', students: 'Students', exams: 'Exams', questions: 'Question bank', algebra: 'Algebra assistant', results: 'Results', audit: 'Audit Log', newsletter: 'Newsletter', roles: 'Roles', users: 'User Management', approvals: 'Pending Approval', backups: 'Database Backup', 'emergency-codes': 'Emergency Codes', institutions: 'Institutions', settings: 'Settings'};
-  const tabMap = new Map([['overview', 'Overview'], ['students', 'Students'], ['exams', 'Exams'], ['questions', 'Question bank'], ['algebra', 'Algebra'], ['results', 'Results'], ['audit', 'Audit log'], ['newsletter', 'Newsletter'], ['roles', 'Roles'], ['users', 'Users'], ['approvals', approvalTitle], ['backups', 'Database backup'], ['emergency-codes', 'Emergency Codes'], ['institutions', 'Institutions'], ['settings', 'Settings']].filter(([id]) => can(id)));
+  const messageTitle = `Messages <span class="nav-badge ${state.supportInbox?.unreadCount ? '' : 'is-empty'}" data-support-unread-badge>${numeric(state.supportInbox?.unreadCount)}</span>`;
+  const pageTitles = {overview: 'Overview', students: 'Students', exams: 'Exams', questions: 'Question bank', algebra: 'Algebra assistant', results: 'Results', audit: 'Audit Log', messages: 'Messages', newsletter: 'Newsletter', roles: 'Roles', users: 'User Management', approvals: 'Pending Approval', backups: 'Database Backup', 'emergency-codes': 'Emergency Codes', institutions: 'Institutions', settings: 'Settings'};
+  const tabMap = new Map([['overview', 'Overview'], ['students', 'Students'], ['exams', 'Exams'], ['questions', 'Question bank'], ['algebra', 'Algebra'], ['results', 'Results'], ['audit', 'Audit log'], ['messages', messageTitle], ['newsletter', 'Newsletter'], ['roles', 'Roles'], ['users', 'Users'], ['approvals', approvalTitle], ['backups', 'Database backup'], ['emergency-codes', 'Emergency Codes'], ['institutions', 'Institutions'], ['settings', 'Settings']].filter(([id]) => can(id)));
   const navigationGroups = [
     ['Workspace', ['overview']],
     ['Academic management', ['students', 'exams', 'questions', 'algebra', 'results']],
-    ['Communication', ['newsletter']],
+    ['Communication', ['messages', 'newsletter']],
     ['Administration', ['approvals', 'users', 'roles']],
     ['System', ['audit', 'backups', 'emergency-codes', 'institutions', 'settings']]
   ];
@@ -1105,6 +1135,7 @@ function adminPage(route) {
   if (page === 'review') return reviewPage();
   if (page === 'student-results') return studentResultsPage();
   if (page === 'audit') return auditPage(route);
+  if (page === 'messages' && can('messages')) return supportMessagesPage();
   if (page === 'newsletter') return newsletterPage();
   if (page === 'roles') return rolesPage();
   if (page === 'users') return usersPage();
@@ -1132,8 +1163,36 @@ function backupPage() {
   return `${adminHeader('Database Backup', 'Create, protect, and recover the complete CBT system record.', '<button class="primary-btn" data-action="create-backup">Create Backup Now</button>')}<section class="panel backup-overview"><div><span class="section-kicker">Secure backup control</span><h2>System snapshots</h2><p>Backups include students, courses, questions, academic periods, grading settings, assessment sessions, submissions, results, audit events, and administrator account details. Password hashes are never exported.</p></div><div class="backup-next-run"><span>Next scheduled run</span><strong>${esc(next)}</strong></div></section><section class="panel" style="margin-top:18px"><div class="panel-heading"><div><h2>Available backups</h2><p class="table-muted">${numeric(items.length)} file${items.length === 1 ? '' : 's'} stored in ${esc(backup.directory || 'database/backups/')}.</p></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Filename</th><th>Created</th><th>Size</th><th>Actions</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No backups have been created yet.</td></tr>'}</tbody></table></div></section><section class="panel backup-settings" style="margin-top:18px"><div class="panel-heading"><div><h2>Automatic backup schedule</h2><p class="table-muted">The server creates the next daily backup when it receives a request at or after the configured server time.</p></div></div><form id="backup-settings-form"><label class="checkbox-field"><input type="checkbox" name="enabled" ${settings.enabled !== false ? 'checked' : ''}> Enable daily automatic backup</label><div class="form-grid"><label class="form-field">Daily server time<input name="time" type="time" value="${esc(settings.time || '02:00')}" required></label><label class="form-field">Maximum backups to keep<input name="retentionCount" type="number" min="1" max="365" value="${numeric(settings.retentionCount, 14)}" required></label></div><p class="table-muted">Oldest files are deleted automatically after the retention limit is reached.</p><div class="modal-actions"><button class="primary-btn">Save backup settings</button></div></form></section><section class="panel backup-restore-panel" style="margin-top:18px"><div class="panel-heading"><div><h2>Restore from backup</h2><p class="table-muted">Restore replaces the current academic and system data. A fresh safety backup is created immediately before any restore.</p></div><button class="danger-btn" data-action="restore-backup">Restore backup</button></div><p class="backup-warning">Sensitive student data is contained in every backup. Store downloaded files securely and keep an off-site copy. Current administrator credentials are retained during a restore because password hashes are intentionally excluded from exports.</p></section><section class="panel backup-information" style="margin-top:18px"><h2>Important information</h2><ul><li>Server copies are stored in <code>database/backups/</code>.</li><li>Download backups regularly and store them in a secure off-site location.</li><li>Retention automatically removes the oldest files after the configured limit.</li></ul></section>`;
 }
 function institutionsPage() {
-  const rows = (state.institutions || []).map(item => `<tr><td><div class="institution-name-cell"><img src="${esc(rootAsset(item.logoPath))}" alt="" aria-hidden="true"><strong>${esc(item.displayName || item.name)}</strong></div></td><td><code>/i/${esc(item.slug)}/</code></td><td>${esc(item.adminEmail || '—')}</td><td><span class="status-pill ${item.active ? '' : 'status-muted'}">${item.active ? 'Active' : 'Suspended'}</span></td><td>${esc(fmtDate(item.createdAt))}</td><td class="table-actions"><a class="outline-btn small-btn" href="${esc(APP_ROOT)}/i/${esc(item.slug)}/admin/settings">Manage settings</a><button class="outline-btn small-btn" data-action="edit-institution-branding" data-id="${esc(item.id)}">Edit branding</button><button class="${item.active ? 'danger-btn' : 'primary-btn'} small-btn" data-action="toggle-institution-status" data-id="${esc(item.id)}" data-active="${item.active ? '1' : '0'}">${item.active ? 'Suspend' : 'Reactivate'}</button><button class="danger-btn small-btn" data-action="delete-institution" data-id="${esc(item.id)}">Delete institution</button></td></tr>`).join('');
+  const rows = (state.institutions || []).map(item => `<tr><td><div class="institution-name-cell"><img src="${esc(rootAsset(item.logoPath))}" alt="" aria-hidden="true"><strong>${esc(item.displayName || item.name)}</strong></div></td><td><code>/i/${esc(item.slug)}/</code></td><td>${esc(item.adminEmail || '—')}</td><td><span class="status-pill ${item.active ? '' : 'status-muted'}">${item.active ? 'Active' : 'Suspended'}</span></td><td>${esc(fmtDate(item.createdAt))}</td><td class="table-actions"><a class="outline-btn small-btn" href="${esc(APP_ROOT)}/i/${esc(item.slug)}/admin/settings">Manage settings</a><button class="outline-btn small-btn" data-action="edit-institution-branding" data-id="${esc(item.id)}">Edit branding</button><button class="${item.active ? 'danger-btn' : 'primary-btn'} small-btn" data-action="toggle-institution-status" data-id="${esc(item.id)}" data-active="${item.active ? '1' : '0'}">${item.active ? 'Suspend' : 'Activate'}</button><button class="danger-btn small-btn" data-action="delete-institution" data-id="${esc(item.id)}">Delete institution</button></td></tr>`).join('');
   return `${adminHeader('Institutions', 'Create and oversee isolated institution workspaces. Tenant Admins remain restricted to their own institution.', '<button class="primary-btn" data-action="new-institution">+ Create institution</button>')}<section class="panel institution-provisioning-note"><strong>Platform Super Admin only</strong><p>Creation seeds the tenant’s roles, grading scale, settings, empty academic session, branded portal, and one Admin account. The initial temporary password is shown once and must be changed on first sign-in.</p></section><section class="panel table-panel" style="margin-top:18px"><div class="panel-heading"><div><h2>Provisioned institutions</h2><p class="table-muted">${numeric((state.institutions || []).length)} isolated institution workspace${numeric((state.institutions || []).length) === 1 ? '' : 's'}.</p></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Institution</th><th>Path</th><th>Initial Admin</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No institutions are available.</td></tr>'}</tbody></table></div></section>`;
+}
+function supportStatusPill(status) {
+  const resolved = status === 'resolved';
+  return `<span class="status-pill ${resolved ? 'status-muted' : ''}">${resolved ? 'Resolved' : 'Open'}</span>`;
+}
+function supportMessageBody(value) { return esc(value).replace(/\r?\n/g, '<br>'); }
+function supportMessagesPage() {
+  const platform = isPlatformSuperAdmin() && !TENANT_SLUG;
+  const inbox = state.supportInbox || {}, thread = state.supportThread?.thread || null, messages = state.supportThread?.messages || [];
+  const filter = state.filters.messages;
+  const items = inbox.items || [];
+  const intro = platform
+    ? 'Review support threads from every institution. Replies are delivered only to the tenant that owns the selected thread.'
+    : 'Contact the Berevion platform team. Only administrators in this institution can view these threads.';
+  const filterForm = `<form id="support-inbox-filter-form" class="filter-bar support-filter"><label><span class="sr-only">Thread status</span><select class="select-field" name="status"><option value="">All statuses</option><option value="open" ${filter.status === 'open' ? 'selected' : ''}>Open</option><option value="resolved" ${filter.status === 'resolved' ? 'selected' : ''}>Resolved</option></select></label>${platform ? `<label><span class="sr-only">Institution</span><select class="select-field" name="institutionId"><option value="">All institutions</option>${(inbox.institutions || []).map(item => `<option value="${esc(item.id)}" ${String(filter.institutionId) === String(item.id) ? 'selected' : ''}>${esc(item.displayName || item.name)}</option>`).join('')}</select></label>` : ''}<button class="outline-btn">Filter</button>${filter.status || filter.institutionId ? '<button class="ghost-btn" type="button" data-action="clear-support-filter">Clear</button>' : ''}</form>`;
+  const rows = items.map(item => {
+    const selected = thread?.id === item.id;
+    const context = platform ? `<small>${esc(item.institutionName || 'Institution')} <code>/i/${esc(item.institutionSlug || '')}/</code></small>` : '';
+    return `<button class="support-thread-row ${selected ? 'active' : ''} ${item.unread ? 'unread' : ''}" type="button" data-route="admin/messages/${esc(item.id)}"><span class="support-thread-row-top"><strong>${esc(item.subject)}</strong>${item.unread ? '<b class="support-unread-dot"><span class="sr-only">Unread reply</span></b>' : ''}</span>${context}<span class="support-thread-row-meta">${supportStatusPill(item.status)}<time datetime="${esc(item.lastMessageAt || '')}">${esc(fmtDate(item.lastMessageAt))}</time></span></button>`;
+  }).join('');
+  const threadHeader = thread ? `<div class="support-thread-heading"><div>${platform ? `<span class="section-kicker">${esc(thread.institutionName || 'Institution')} <code>/i/${esc(thread.institutionSlug || '')}/</code></span>` : '<span class="section-kicker">Platform support</span>'}<h2>${esc(thread.subject)}</h2><p class="table-muted">Created ${esc(fmtDate(thread.createdAt))}</p></div><div class="table-actions">${supportStatusPill(thread.status)}${platform ? `<button class="${thread.status === 'open' ? 'danger-btn' : 'primary-btn'} small-btn" type="button" data-action="support-thread-status" data-status="${thread.status === 'open' ? 'resolved' : 'open'}">${thread.status === 'open' ? 'Resolve thread' : 'Reopen thread'}</button>` : ''}</div></div>` : '<div class="support-thread-heading"><div><span class="section-kicker">Select a conversation</span><h2>Support conversation</h2><p class="table-muted">Choose a thread from the inbox to read and reply.</p></div></div>';
+  const messageList = thread ? (messages.length ? messages.map(message => `<article class="support-message ${message.senderScope === 'platform_super_admin' ? 'from-platform' : 'from-tenant'}"><header><strong>${esc(message.senderLabel)}</strong><time datetime="${esc(message.createdAt || '')}">${esc(fmtDate(message.createdAt))}</time></header><p>${supportMessageBody(message.body)}</p></article>`).join('') : emptyState('No messages have been posted in this thread yet.')) : emptyState('Select a support thread to view its messages.');
+  const reply = thread ? (thread.canReply ? `<form id="support-thread-reply-form" data-scope="${platform ? 'platform' : 'tenant'}" data-thread-id="${esc(thread.id)}" class="support-reply-form"><div class="alert" role="alert"></div><label class="form-field">Reply<textarea name="message" maxlength="5000" rows="5" placeholder="Write a clear support reply…" required></textarea></label><div class="modal-actions"><button class="primary-btn">Send reply</button></div></form>` : `<div class="support-resolved-note"><strong>This thread is resolved.</strong><span>${platform ? 'Reopen it before sending another platform reply.' : 'Only the platform Super Admin can reopen it.'}</span></div>`) : '';
+  const detail = `<section class="panel support-thread-panel">${threadHeader}<div class="support-message-list" aria-live="polite">${messageList}</div>${reply}</section>`;
+  return `${adminHeader(platform ? 'Support messages' : 'Messages', intro, platform ? '' : '<button class="primary-btn" data-action="new-support-thread">+ New message</button>')}<section class="panel support-inbox-toolbar"><div><span class="section-kicker">${platform ? 'Platform support inbox' : 'Institution support inbox'}</span><h2>${numeric(inbox.unreadCount)} unread ${numeric(inbox.unreadCount) === 1 ? 'reply' : 'replies'}</h2></div>${filterForm}</section><div class="support-messages-layout"><section class="panel support-inbox-panel"><div class="panel-heading"><div><h2>${platform ? 'All tenant threads' : 'Your institution’s threads'}</h2><p class="table-muted">${numeric(inbox.meta?.total)} thread${numeric(inbox.meta?.total) === 1 ? '' : 's'}.</p></div></div><div class="support-thread-list">${rows || emptyState('No support threads match this filter.', platform ? '' : '<button class="primary-btn" data-action="new-support-thread">Start a support thread</button>')}</div>${pager('messages')}</section>${detail}</div>`;
+}
+function supportThreadCreateForm() {
+  openModal('New support message', `<form id="support-thread-create-form"><div class="alert" role="alert"></div><p class="form-help">Your message goes to the Berevion platform Super Admin. Do not include passwords, student credentials, or sensitive personal data.</p><label class="form-field">Subject<input name="subject" maxlength="180" required autofocus placeholder="Briefly describe what you need help with"></label><label class="form-field">Message<textarea name="message" maxlength="5000" rows="8" required placeholder="Include the relevant course, component, date, and what you have already tried."></textarea></label><div class="modal-actions"><button type="button" class="outline-btn" data-action="close-modal">Cancel</button><button class="primary-btn">Send to platform support</button></div></form>`);
 }
 function accentRgb(hex) { const value = String(hex || '').replace('#', ''); return [parseInt(value.slice(0, 2), 16), parseInt(value.slice(2, 4), 16), parseInt(value.slice(4, 6), 16)]; }
 function accentLuminance(hex) { return accentRgb(hex).map(value => { const channel = value / 255; return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4; }).reduce((total, value, index) => total + value * [.2126, .7152, .0722][index], 0); }
@@ -1443,7 +1502,7 @@ function approvalsPage() {
 }
 function roleForm(role) {
   const permissions = role.permissions || [];
-  openModal(`Configure ${role.name}`, `<form id="role-form" data-id="${esc(role.id)}"><div class="alert" role="alert"></div><p class="table-muted">Choose the workspaces this role can access. Course management includes separate Test and Exam controls; Settings includes academic sessions and semesters. Superadmin access and the Roles workspace remain system-locked.</p><label class="form-field">Maximum users<input name="maxUsers" type="number" min="1" max="100" value="${numeric(role.maxUsers)}" required></label><fieldset class="correct-options"><legend>Permissions</legend>${['overview', 'students', 'exams', 'questions', 'results', 'audit', 'newsletter', 'settings'].map(permission => `<label><input type="checkbox" name="permissions" value="${permission}" ${permissions.includes(permission) ? 'checked' : ''}> ${permission.replaceAll('_', ' ')}</label>`).join('')}</fieldset><div class="modal-actions"><button class="primary-btn">Save role</button></div></form>`);
+  openModal(`Configure ${role.name}`, `<form id="role-form" data-id="${esc(role.id)}"><div class="alert" role="alert"></div><p class="table-muted">Choose the workspaces this role can access. Course management includes separate Test and Exam controls; Settings includes academic sessions and semesters. Superadmin access and the Roles workspace remain system-locked.</p><label class="form-field">Maximum users<input name="maxUsers" type="number" min="1" max="100" value="${numeric(role.maxUsers)}" required></label><fieldset class="correct-options"><legend>Permissions</legend>${['overview', 'students', 'exams', 'questions', 'results', 'audit', 'messages', 'newsletter', 'settings'].map(permission => `<label><input type="checkbox" name="permissions" value="${permission}" ${permissions.includes(permission) ? 'checked' : ''}> ${permission.replaceAll('_', ' ')}</label>`).join('')}</fieldset><div class="modal-actions"><button class="primary-btn">Save role</button></div></form>`);
 }
 function adminUserForm(user = null) {
   const editing = Boolean(user);
@@ -2132,6 +2191,22 @@ async function handleForm(event) {
       }
       await put('settings', settingsPayload);
       toast('Settings saved. Existing results were recalculated.', 'success'); render();
+    } else if (form.id === 'support-inbox-filter-form') {
+      const values = formData(form);
+      state.filters.messages = {status: String(values.status || ''), institutionId: String(values.institutionId || ''), page: 1};
+      render();
+    } else if (form.id === 'support-thread-create-form') {
+      const values = formData(form);
+      const subject = String(values.subject || '').trim(), message = String(values.message || '').trim();
+      if (!subject || !message) throw new Error('Enter both a subject and a support message.');
+      const response = await post('support-threads', {subject, message});
+      closeModal(); toast('Your support message was sent to the platform team.', 'success'); navigate(`admin/messages/${response.threadId}`);
+    } else if (form.id === 'support-thread-reply-form') {
+      const message = String(formData(form).message || '').trim(), threadId = String(form.dataset.threadId || '');
+      if (!message || !threadId) throw new Error('Enter a reply before sending.');
+      if (form.dataset.scope === 'platform') await post('platform-support-thread', {operation: 'reply', threadId, message});
+      else await post('support-thread', {threadId, message});
+      toast('Support reply sent.', 'success'); render();
     } else if (form.id === 'audit-filter-form') {
       const values = formData(form);
       state.filters.audit = {from: String(values.from || ''), to: String(values.to || ''), actor: String(values.actor || '').trim(), type: String(values.type || ''), course: String(values.course || '').trim(), page: 1};
@@ -2203,6 +2278,25 @@ async function handleAction(button) {
     return;
   }
   if (action === 'retry') return render();
+  if (action === 'new-support-thread') {
+    if (isPlatformSuperAdmin() && !TENANT_SLUG) return toast('Platform support replies to tenant threads; only a tenant Admin can start a new support thread.', 'info');
+    return supportThreadCreateForm();
+  }
+  if (action === 'clear-support-filter') {
+    state.filters.messages = {status: '', institutionId: '', page: 1};
+    return render();
+  }
+  if (action === 'support-thread-status') {
+    if (!isPlatformSuperAdmin() || TENANT_SLUG) return toast('Only the platform Super Admin can resolve or reopen a support thread.', 'error');
+    const threadId = state.supportThread?.thread?.id, status = button.dataset.status === 'resolved' ? 'resolved' : 'open';
+    if (!threadId) return toast('Select a support thread first.', 'error');
+    const label = status === 'resolved' ? 'Resolve thread' : 'Reopen thread';
+    return confirmAction(label, status === 'resolved' ? 'Resolve this thread? Tenant administrators will be able to read it but cannot reply until you reopen it.' : 'Reopen this support thread? The tenant administrators will be able to reply again.', label, async () => {
+      await post('platform-support-thread', {operation: 'set-status', threadId, status});
+      toast(status === 'resolved' ? 'Support thread resolved.' : 'Support thread reopened.', 'success');
+      render();
+    });
+  }
   if (action === 'clear-algebra-insight') { state.algebraInsight = null; return render(); }
   if (action === 'discard-algebra-draft') { state.algebraDraftReview = null; return navigate('admin/algebra'); }
   if (action === 'use-algebra-setup') {
@@ -2415,13 +2509,23 @@ async function handleAction(button) {
     const institution = (state.institutions || []).find(item => String(item.id) === String(id));
     if (!institution) return toast('Institution details are no longer available. Refresh and try again.', 'error');
     const activating = button.dataset.active !== '1';
-    const verb = activating ? 'Reactivate' : 'Suspend';
+    const verb = activating ? 'Activate' : 'Suspend';
     const copy = activating ? `Reactivate ${institution.displayName || institution.name}? Its existing administrators and students can sign in again immediately. No data has been removed.` : `Suspend ${institution.displayName || institution.name}? Administrators and students will be blocked from signing in, but all of the institution’s data stays intact.`;
-    return confirmAction(`${verb} institution`, copy, verb, async () => {
+    const confirmationCopy = activating
+      ? `Activate ${institution.displayName || institution.name}? Its existing administrators and students can sign in again immediately. No data has been removed.`
+      : `Suspend ${institution.displayName || institution.name}? Administrators and students will be blocked from signing in, but all of the institution's data stays intact.`;
+    return confirmAction(`${verb} institution`, confirmationCopy, verb, async () => {
       const statusForm = new FormData(); statusForm.set('operation', 'set-status'); statusForm.set('institutionId', String(institution.id)); statusForm.set('active', activating ? '1' : '0');
       await api('platform-institutions', {method: 'POST', body: statusForm});
+      // Suspending the tenant currently being viewed should return the Super
+      // Admin to the unscoped platform workspace. The target tenant remains
+      // suspended for its own administrators and students.
+      if (!activating && TENANT_SLUG === String(institution.slug || '').toLowerCase()) {
+        window.location.assign(`${APP_ROOT}/admin/institutions`);
+        return;
+      }
       state.institutions = (await api('platform-institutions')).items || []; render();
-      toast(`Institution ${activating ? 'reactivated' : 'suspended'}.`, 'success');
+      toast(`Institution ${activating ? 'activated' : 'suspended'}.`, 'success');
     });
   }
   if (action === 'delete-institution') {

@@ -1542,6 +1542,42 @@ body.dark-theme.platform-surface .topbar { border-color: rgba(126,187,255,.38); 
 .algebra-result-sheet-draft { margin-top:18px; border-top:3px solid var(--green); }
 @media (max-width:760px) { .algebra-grid { grid-template-columns:1fr; } .algebra-safety-note { flex-direction:column; gap:4px; } }
 
+/* Support messaging deliberately reuses the panel, badge, and button system.
+   All colour comes from the current surface palette, never another tenant. */
+.support-inbox-toolbar { display:flex; align-items:center; justify-content:space-between; gap:18px; }
+.support-inbox-toolbar h2 { margin:4px 0 0; font-size:18px; }
+.support-filter { margin:0; }
+.support-messages-layout { display:grid; grid-template-columns:minmax(280px,.82fr) minmax(0,1.45fr); gap:18px; margin-top:18px; align-items:start; }
+.support-inbox-panel, .support-thread-panel { min-width:0; }
+.support-thread-list { display:grid; gap:8px; }
+.support-thread-row { width:100%; display:grid; gap:7px; padding:13px; color:var(--ink); border:1px solid var(--line); border-radius:11px; background:var(--panel-soft); text-align:left; cursor:pointer; transition:border-color .18s ease, background .18s ease, transform .18s ease; }
+.support-thread-row:hover { border-color:var(--green); background:color-mix(in srgb,var(--green) 7%,var(--panel-soft)); transform:translateY(-1px); }
+.support-thread-row.active { border-color:var(--green); background:color-mix(in srgb,var(--green) 11%,var(--panel-soft)); box-shadow:0 0 0 2px color-mix(in srgb,var(--green) 13%,transparent); }
+.support-thread-row.unread { border-left:4px solid var(--green); padding-left:10px; }
+.support-thread-row-top, .support-thread-row-meta { display:flex; align-items:center; gap:8px; min-width:0; }
+.support-thread-row-top strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+.support-thread-row small { overflow:hidden; color:var(--muted); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.support-thread-row-meta { justify-content:space-between; color:var(--muted); font-size:11px; }
+.support-thread-row-meta .status-pill { padding:3px 7px; font-size:10px; }
+.support-unread-dot { width:8px; height:8px; flex:0 0 auto; border-radius:50%; background:var(--green); }
+.support-thread-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; padding-bottom:16px; border-bottom:1px solid var(--line); }
+.support-thread-heading h2 { margin:5px 0; font-size:20px; letter-spacing:-.025em; }
+.support-thread-heading p { margin:0; }
+.support-message-list { display:grid; gap:12px; max-height:510px; min-height:250px; overflow:auto; padding:18px 2px; }
+.support-message { max-width:min(88%,720px); padding:13px 15px; border:1px solid var(--line); border-radius:12px; background:var(--panel-soft); }
+.support-message.from-platform { justify-self:end; border-color:color-mix(in srgb,var(--green) 44%,var(--line)); background:color-mix(in srgb,var(--green) 10%,var(--panel-soft)); }
+.support-message.from-tenant { justify-self:start; }
+.support-message header { display:flex; align-items:center; justify-content:space-between; gap:15px; margin-bottom:7px; }
+.support-message header strong { font-size:12px; }
+.support-message time { color:var(--muted); font-size:10px; white-space:nowrap; }
+.support-message p { margin:0; color:var(--ink); font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
+.support-reply-form { padding-top:16px; border-top:1px solid var(--line); }
+.support-reply-form .form-field { margin-bottom:0; }
+.support-resolved-note { display:grid; gap:4px; margin-top:15px; padding:13px; color:var(--muted); border:1px solid var(--line); border-left:4px solid #7b8d84; border-radius:9px; background:var(--panel-soft); font-size:12px; }
+.support-resolved-note strong { color:var(--ink); }
+@media (max-width:900px) { .support-messages-layout { grid-template-columns:1fr; }.support-thread-list { max-height:330px; overflow:auto; }.support-inbox-toolbar { align-items:stretch; flex-direction:column; }.support-filter { width:100%; }.support-filter > * { flex:1; } }
+@media (max-width:560px) { .support-thread-heading { align-items:stretch; flex-direction:column; }.support-thread-heading .table-actions { width:100%; }.support-thread-heading .table-actions button { flex:1; }.support-message { max-width:100%; }.support-message-list { max-height:none; }.support-filter { align-items:stretch; flex-direction:column; }.support-filter button { min-height:40px; } }
+
 /* Tenant dark palettes are derived from the tenant accent.  Earlier dark-mode
    rules pre-date multi-tenancy and used fixed green surfaces; keeping this
    override last prevents one institution's old palette from bleeding into

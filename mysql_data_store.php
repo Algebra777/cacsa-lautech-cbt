@@ -36,6 +36,31 @@ function mysqlAppPdo(): PDO {
     return $pdo ??= mysqlMigrationPdo(__DIR__);
 }
 /**
+ * Tenant suspension blocks the tenant's own students and administrators, not
+ * the platform Super Admin who must be able to reverse that suspension.
+ *
+ * This deliberately checks only an existing platform-session record plus the
+ * one platform account's active flag. It never treats a tenant session as a
+ * platform session and it never trusts a client-supplied institution ID.
+ * cookieValues()/tokenHash() are declared by api.php before request execution;
+ * the fallback keeps this repository safe for CLI tooling too.
+ */
+function mysqlRequestHasLivePlatformSession(): bool {
+    static $hasSession = null;
+    if ($hasSession !== null) return $hasSession;
+    $account = mysqlPlatformAdminAccount();
+    if (!$account || !mysqlBool($account['active'] ?? false)) return $hasSession = false;
+    $tokens = function_exists('cookieValues')
+        ? cookieValues('CBT_ADMIN_SESSION')
+        : array_values(array_filter([(string)($_COOKIE['CBT_ADMIN_SESSION'] ?? '')], static fn(string $token): bool => $token !== ''));
+    foreach ($tokens as $token) {
+        if (!is_string($token) || $token === '') continue;
+        $hash = function_exists('tokenHash') ? tokenHash($token) : hash('sha256', $token);
+        if (mysqlPlatformSession($hash) !== null) return $hasSession = true;
+    }
+    return $hasSession = false;
+}
+/**
  * Resolve the tenant from the server-visible URL, never from a request body,
  * query parameter, or client-supplied header.  The legacy root URL remains
  * CACSA for existing bookmarks until the branded routes are introduced.
@@ -50,7 +75,9 @@ function mysqlRequestInstitution(): array {
     $statement->execute(['slug' => $slug]);
     $row = $statement->fetch();
     if (!$row || $row['deleted_at'] !== null) throw new InstitutionUnavailableException('The requested institution is unavailable.');
-    if (!(int)$row['active']) throw new InstitutionSuspendedException('This institution’s access has been suspended — contact the platform administrator.');
+    // A valid platform Super Admin remains able to reach the tenant context
+    // and reactivate it. All tenant users still receive the suspended response.
+    if (!(int)$row['active'] && !mysqlRequestHasLivePlatformSession()) throw new InstitutionSuspendedException('This institution’s access has been suspended — contact the platform administrator.');
     $institution = ['id' => (int)$row['id'], 'name' => (string)$row['name'], 'slug' => (string)$row['slug']];
     return $institution;
 }
@@ -419,7 +446,7 @@ function mysqlSetInstitutionActive(int $institutionId, bool $active, string $act
 function mysqlInstitutionSafetyBackup(PDO $pdo, int $institutionId, string $slug, string $reason, string $actorEmail): array {
     $directory = __DIR__ . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . 'backups' . DIRECTORY_SEPARATOR . 'institution-' . $institutionId;
     if (!is_dir($directory) && !mkdir($directory, 0700, true) && !is_dir($directory)) throw new RuntimeException('Could not create the institution safety-backup directory.');
-    $tables = ['institution_branding','institution_assets','storage_migrations','academic_sessions','academic_semesters','roles','role_permissions','students','courses','course_components','questions','question_options','question_publish_targets','assessment_passwords','assessment_login_tokens','assessment_attempts','attempt_question_snapshots','attempt_answers','attempt_flags','attempt_integrity_events','component_submissions','calculated_results','calculated_result_items','admin_users','admin_sessions','admin_profile_overrides','admin_user_activity','pending_admin_requests','admin_email_verifications','admin_password_resets','admin_two_factor_challenges','emergency_recovery_codes','audit_events','audit_archives','rate_limit_records','exam_login_failures','exam_login_ip_attempts','exam_flags','newsletter_subscribers','newsletters','newsletter_deliveries','grading_scale_bands','integrity_policies','institution_settings','dashboard_hidden_outcomes','backup_records'];
+    $tables = ['institution_branding','institution_assets','storage_migrations','academic_sessions','academic_semesters','roles','role_permissions','students','courses','course_components','questions','question_options','question_publish_targets','assessment_passwords','assessment_login_tokens','assessment_attempts','attempt_question_snapshots','attempt_answers','attempt_flags','attempt_integrity_events','component_submissions','calculated_results','calculated_result_items','admin_users','admin_sessions','admin_profile_overrides','admin_user_activity','pending_admin_requests','admin_email_verifications','admin_password_resets','admin_two_factor_challenges','emergency_recovery_codes','audit_events','audit_archives','rate_limit_records','exam_login_failures','exam_login_ip_attempts','exam_flags','newsletter_subscribers','newsletters','newsletter_deliveries','support_threads','support_messages','grading_scale_bands','integrity_policies','institution_settings','dashboard_hidden_outcomes','backup_records'];
     $snapshot = ['_backup' => ['kind' => 'institution-soft-delete-safety', 'institutionId' => $institutionId, 'slug' => $slug, 'reason' => $reason, 'createdBy' => $actorEmail, 'createdAt' => gmdate('c')]];
     foreach ($tables as $table) { $statement = $pdo->prepare("SELECT * FROM {$table} WHERE institution_id = :institution_id"); $statement->execute(['institution_id' => $institutionId]); $snapshot[$table] = $statement->fetchAll(); }
     $filename = 'institution-soft-delete-safety-' . gmdate('Ymd-His') . '-' . bin2hex(random_bytes(4)) . '.json';

@@ -167,15 +167,15 @@ const DEFAULT_INSTITUTION_BRANDING = [
     'resultSheetTitle' => 'CACSA LAUTECH CBT',
     'newsletterSenderName' => 'CACSA LAUTECH', 'supportEmail' => NEWSLETTER_SENDER,
 ];
-const ADMIN_PERMISSIONS = ['overview', 'students', 'exams', 'questions', 'results', 'audit', 'newsletter', 'settings', 'roles'];
+const ADMIN_PERMISSIONS = ['overview', 'students', 'exams', 'questions', 'results', 'audit', 'newsletter', 'messages', 'settings', 'roles'];
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'pdf_import_queue.php';
 const DEFAULT_ROLES = [
     ['id' => 'admin', 'name' => 'Admin', 'description' => 'Full operational control within this institution.', 'maxUsers' => 1, 'systemLocked' => true, 'permissions' => ADMIN_PERMISSIONS],
     // Retained only while the Phase 2 migration converts the historical local
     // bootstrap identity into the separate platform account.
     ['id' => 'superadmin', 'name' => 'Superadmin', 'description' => 'Full system access and administrator management.', 'maxUsers' => 1, 'systemLocked' => true, 'permissions' => ADMIN_PERMISSIONS],
-    ['id' => 'academic_coordinator', 'name' => 'Academic Coordinator', 'description' => 'Manages courses, Test/Exam components, students, results, audit monitoring, settings, and newsletters.', 'maxUsers' => 5, 'systemLocked' => false, 'permissions' => ['overview', 'students', 'exams', 'questions', 'results', 'audit', 'newsletter', 'settings']],
-    ['id' => 'assistant_academic_coordinator', 'name' => 'Assistant Academic Coordinator', 'description' => 'Supports courses, Test/Exam components, students, results, audit monitoring, settings, and newsletters.', 'maxUsers' => 10, 'systemLocked' => false, 'permissions' => ['overview', 'students', 'exams', 'questions', 'results', 'audit', 'newsletter', 'settings']]
+    ['id' => 'academic_coordinator', 'name' => 'Academic Coordinator', 'description' => 'Manages courses, Test/Exam components, students, results, audit monitoring, settings, newsletters, and support messages.', 'maxUsers' => 5, 'systemLocked' => false, 'permissions' => ['overview', 'students', 'exams', 'questions', 'results', 'audit', 'newsletter', 'messages', 'settings']],
+    ['id' => 'assistant_academic_coordinator', 'name' => 'Assistant Academic Coordinator', 'description' => 'Supports courses, Test/Exam components, students, results, audit monitoring, settings, newsletters, and support messages.', 'maxUsers' => 10, 'systemLocked' => false, 'permissions' => ['overview', 'students', 'exams', 'questions', 'results', 'audit', 'newsletter', 'messages', 'settings']]
 ];
 
 function respond(mixed $data, int $status = 200): never {
@@ -1305,8 +1305,36 @@ function recordExamLoginFailure(array &$data, array $security, string $matricNum
     return $locked;
 }
 function clearExamLoginFailures(array &$data, string $matricNumber, string $examId): void { unset($data['examLoginFailures'][examLoginPairKey($matricNumber, $examId)]); }
+/**
+ * Resolve administrator identity according to the server-visible route.
+ *
+ * A browser may legitimately hold a platform cookie at /BEREVION/ and a
+ * tenant cookie at /BEREVION/i/{slug}/.  On an explicit tenant route the
+ * tenant identity must win when it is valid; otherwise a platform Super
+ * Admin would silently mask the tenant Admin and make tenant-only features
+ * appear unavailable.  If no tenant session is present, the platform session
+ * remains a valid explicit-support-access fallback.
+ */
+function mysqlRouteAwareAdminSession(): ?array {
+    if (!mysqlStorageEnabled()) return null;
+    $tokens = cookieValues('CBT_ADMIN_SESSION');
+    $tenantFirst = requestHasExplicitInstitutionPath();
+    foreach ($tokens as $token) {
+        $hash = tokenHash($token);
+        $candidate = $tenantFirst ? mysqlTenantSession($hash) : mysqlPlatformSession($hash);
+        if (adminSessionIsLive($candidate)) return $candidate;
+    }
+    foreach ($tokens as $token) {
+        $hash = tokenHash($token);
+        $candidate = $tenantFirst ? mysqlPlatformSession($hash) : mysqlTenantSession($hash);
+        if (adminSessionIsLive($candidate)) return $candidate;
+    }
+    return null;
+}
 function currentRequestUsesPlatformSession(): bool {
     if (!mysqlStorageEnabled()) return false;
+    $resolved = mysqlRouteAwareAdminSession();
+    if ($resolved !== null) return ($resolved['scope'] ?? '') === 'platform';
     foreach (cookieValues('CBT_ADMIN_SESSION') as $token) if (mysqlPlatformSession(tokenHash($token)) !== null) return true;
     return false;
 }
@@ -1417,6 +1445,10 @@ function adminSessionIsLive(?array $record): bool {
     return is_array($record) && !empty($record['tokenHash']);
 }
 function adminSessionRecord(array $data): ?array {
+    if (mysqlStorageEnabled()) {
+        $resolved = mysqlRouteAwareAdminSession();
+        if (adminSessionIsLive($resolved)) return $resolved;
+    }
     // Check every same-name cookie, if a legacy path left duplicates behind.
     // Only a live record may authenticate this request; a stale token can
     // never mask a valid newly-issued session.
@@ -2321,8 +2353,7 @@ function mysqlFastSessionSubmit(): never {
 }
 /** Authenticate an admin read without hydrating every tenant table. */
 function mysqlFastRequireAdmin(): array {
-    $action=(string)($_GET['action']??'');$record=null;
-    foreach(cookieValues('CBT_ADMIN_SESSION') as $token){$hash=tokenHash($token);$candidate=mysqlTenantSession($hash);if(!$candidate)$candidate=mysqlPlatformSession($hash);if(adminSessionIsLive($candidate)){$record=$candidate;break;}}
+    $action=(string)($_GET['action']??'');$record=mysqlRouteAwareAdminSession();
     if(!$record)respond(['error'=>'No active admin sign-in was found. Please sign in again.'],401);
     if(!empty($record['mustChangePassword'])&&!in_array($action,['admin-account','admin-logout'],true))respond(['error'=>'Change the initial temporary administrator password before accessing the administration workspace.'],403);
     $permission=requiredPermission();$permissions=(($record['scope']??'')==='platform')?ADMIN_PERMISSIONS:(array)($record['permissions']??[]);
@@ -2724,6 +2755,94 @@ function mysqlAlgebraResultReport(): never {
     $session=mysqlAlgebraRequireTenantAdmin();algebraBeginRequest($session);$empty=[];algebraStage2RateLimit($empty,$session,'result_report');$input=body();$studentId=trim((string)($input['studentId']??''));$sessionId=trim((string)($input['sessionId']??''));$semesterId=trim((string)($input['semesterId']??''));if($studentId===''||$sessionId===''||$semesterId==='')respond(['error'=>'Choose a student and calculated academic period.'],422);$pdo=mysqlAppPdo();$institutionId=mysqlCurrentInstitutionId();$record=$pdo->prepare('SELECT cr.id,cr.semester_gpa,cr.cgpa,s.full_name,s.matric_number,acs.label session_label,sem.label semester_label FROM calculated_results cr INNER JOIN students s ON s.institution_id=cr.institution_id AND s.id=cr.student_id LEFT JOIN academic_sessions acs ON acs.institution_id=cr.institution_id AND acs.id=cr.session_id LEFT JOIN academic_semesters sem ON sem.institution_id=cr.institution_id AND sem.id=cr.semester_id WHERE cr.institution_id=? AND cr.student_id=? AND cr.session_id=? AND cr.semester_id=? LIMIT 1');$record->execute([$institutionId,$studentId,$sessionId,$semesterId]);$result=$record->fetch();if(!$result)respond(['error'=>'A calculated result for that student and period was not found in this institution.'],404);$items=$pdo->prepare('SELECT item_json FROM calculated_result_items WHERE institution_id=? AND calculated_result_id=? ORDER BY course_id');$items->execute([$institutionId,$result['id']]);$courses=array_map(fn($row)=>(array)mysqlJson($row['item_json'],[]),$items->fetchAll());$requestId=algebraCreateRequest($pdo,$session,'result_report',['student'=>'the student','academicPeriod'=>'the selected academic period','semesterGpa'=>(float)$result['semester_gpa'],'cgpa'=>(float)$result['cgpa'],'courses'=>array_map(static fn(array $course):array=>['course'=>'the selected course','score'=>$course['score']??null,'grade'=>$course['grade']??null,'gradePoint'=>$course['gradePoint']??null,'qualityPoints'=>$course['qualityPoints']??null],$courses)]);
     try{$tokenized=['student'=>'the student','academicPeriod'=>'the selected academic period','semesterGpa'=>(float)$result['semester_gpa'],'cgpa'=>(float)$result['cgpa'],'courses'=>array_map(static fn(array $course):array=>['course'=>'the selected course','score'=>$course['score']??null,'grade'=>$course['grade']??null,'gradePoint'=>$course['gradePoint']??null,'qualityPoints'=>$course['qualityPoints']??null],$courses)];$instruction='You are Algebra, a careful academic-report drafting assistant. Create a neutral printable result-sheet narrative from this already calculated result. Do not recalculate grades, change results, promise outcomes, mention other students, add identity data, or return matric numbers, emails, student IDs, or institution IDs. Return ONLY JSON: {"heading":"...","summary":"...","highlights":["..."],"reviewNote":"..."}. SNAPSHOT:\n'.json_encode($tokenized,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);$decoded=algebraDecodeJson(algebraGeminiText($instruction,3500));$joined=json_encode($decoded,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);if(preg_match('/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i',$joined)||preg_match('/\b[A-Z]{2,8}[\/-]\d{2,}[A-Z0-9\/-]*\b/i',$joined))throw new AlgebraProviderException('Algebra returned identifying data in the result-report draft.',422);$heading=algebraBoundedText($decoded['heading']??'',180);$summary=algebraBoundedText($decoded['summary']??'',2000);$highlights=$decoded['highlights']??[];$note=algebraBoundedText($decoded['reviewNote']??'',500);if($heading===''||$summary===''||!is_array($highlights)||!array_is_list($highlights))throw new AlgebraProviderException('Algebra returned an invalid result-report draft.',422);$output=['heading'=>$heading,'summary'=>$summary,'highlights'=>array_values(array_slice(array_filter(array_map(fn($item)=>algebraBoundedText($item,500),$highlights)),0,8)),'reviewNote'=>$note,'draftOnly'=>true];algebraFinishRequest($pdo,$requestId,'completed',$output);algebraAudit($pdo,$session,'algebra_result_report_drafted','calculated_result',$result['id'],['requestId'=>$requestId,'draftOnly'=>true]);respond(['requestId'=>$requestId]+$output);}catch(Throwable $error){algebraFinishFailure($pdo,$session,$requestId,'algebra_result_report','calculated_result',(string)$result['id'],$error);}
 }
+/** Plain-text-only validation for human support correspondence. HTML is not
+ * interpreted anywhere; the UI will additionally escape the stored text. */
+function supportText(mixed $value, string $label, int $maximum, bool $singleLine = false): string {
+    if (!is_string($value)) respond(['error' => $label . ' is required.'], 422);
+    $text = trim($value);
+    if ($singleLine && preg_match('/[\r\n]/', $text)) respond(['error' => $label . ' must be a single line.'], 422);
+    if ($text === '' || textLength($text) > $maximum || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', $text)) {
+        respond(['error' => $label . ' must be between 1 and ' . $maximum . ' characters.'], 422);
+    }
+    return $text;
+}
+function supportThreadId(mixed $value): string {
+    $id = is_string($value) ? strtolower(trim($value)) : '';
+    if (!preg_match('/^[a-f0-9]{32}$/', $id)) respond(['error' => 'The support thread identifier is invalid.'], 422);
+    return $id;
+}
+function mysqlSupportTenantSession(): array {
+    $session = mysqlFastRequireAdmin();
+    if (($session['scope'] ?? '') !== 'institution') respond(['error' => 'Resource not found.'], 404);
+    $permission = mysqlAppPdo()->prepare("SELECT 1 FROM role_permissions WHERE institution_id=:institution_id AND role_id=:role_id AND permission='messages' LIMIT 1");
+    $permission->execute(['institution_id'=>mysqlCurrentInstitutionId(),'role_id'=>(string)($session['roleId'] ?? '')]);
+    if (!$permission->fetchColumn()) respond(['error' => 'Your role does not have permission to use support messages.'], 403);
+    return $session;
+}
+function mysqlSupportPlatformSession(): array {
+    $session = mysqlFastRequireAdmin();
+    if (($session['scope'] ?? '') !== 'platform' || ($session['roleId'] ?? '') !== 'platform_super_admin') respond(['error' => 'Resource not found.'], 404);
+    return $session;
+}
+function mysqlSupportRateLimit(array $session, string $operation, int $maximum, int $windowSeconds): void {
+    if (($session['scope'] ?? '') !== 'institution') return;
+    $key = hash('sha256', 'support-' . $operation . '|admin:' . (string)($session['userId'] ?? '') . '|' . clientFingerprint());
+    if (!mysqlConsumeRateLimit($key, $maximum, $windowSeconds)) respond(['error' => 'Too many support-message requests. Please wait a moment and try again.'], 429);
+}
+function mysqlSupportTenantAudit(PDO $pdo, int $institutionId, string $actorType, string $actorId, string $action, string $targetId, array $metadata, string $correlationId): void {
+    $statement = $pdo->prepare('INSERT INTO audit_events (institution_id,id,timestamp_at,actor_type,actor_id,action_type,target_type,target_id,ip_address,user_agent,outcome,correlation_id,before_after_json,metadata_json) VALUES (:institution_id,:id,UTC_TIMESTAMP(6),:actor_type,:actor_id,:action_type,\'support_thread\',:target_id,:ip_address,:user_agent,\'success\',:correlation_id,JSON_OBJECT(),:metadata_json)');
+    $statement->execute(['institution_id'=>$institutionId,'id'=>id(),'actor_type'=>$actorType,'actor_id'=>$actorId,'action_type'=>$action,'target_id'=>$targetId,'ip_address'=>clientFingerprint(),'user_agent'=>auditUserAgent(),'correlation_id'=>$correlationId,'metadata_json'=>json_encode($metadata, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)]);
+}
+function mysqlSupportThreadList(bool $platform): array {
+    $pdo = mysqlAppPdo();
+    $status = trim((string)($_GET['status'] ?? ''));
+    if ($status !== '' && !in_array($status, ['open','resolved'], true)) respond(['error'=>'Choose open or resolved status.'],422);
+    $pageSize=max(5,min(100,(int)($_GET['pageSize']??20))); $page=max(1,(int)($_GET['page']??1));
+    if (!$platform) {
+        $institutionId=mysqlCurrentInstitutionId(); $where=['t.institution_id=:institution_id']; $params=['institution_id'=>$institutionId];
+        if($status!==''){ $where[]='t.status=:status'; $params['status']=$status; }
+        $filter=implode(' AND ',$where);
+        $count=$pdo->prepare("SELECT COUNT(*) FROM support_threads t WHERE {$filter}"); $count->execute($params); $total=(int)$count->fetchColumn();
+        $pages=max(1,(int)ceil($total/$pageSize)); $page=min($page,$pages);
+        $sql="SELECT t.id,t.subject,t.status,t.created_at,t.last_message_at,t.created_by_admin_id,EXISTS(SELECT 1 FROM support_messages m WHERE m.institution_id=t.institution_id AND m.thread_id=t.id AND m.sender_scope='platform_super_admin' AND (t.tenant_last_read_at IS NULL OR m.created_at>t.tenant_last_read_at)) unread FROM support_threads t WHERE {$filter} ORDER BY t.last_message_at DESC,t.id DESC LIMIT :limit OFFSET :offset";
+        $statement=$pdo->prepare($sql); foreach($params as $key=>$value)$statement->bindValue(':'.$key,$value); $statement->bindValue(':limit',$pageSize,PDO::PARAM_INT); $statement->bindValue(':offset',($page-1)*$pageSize,PDO::PARAM_INT); $statement->execute();
+        $items=[];foreach($statement->fetchAll() as $row)$items[]=['id'=>$row['id'],'subject'=>$row['subject'],'status'=>$row['status'],'createdAt'=>mysqlIso($row['created_at']),'lastMessageAt'=>mysqlIso($row['last_message_at']),'createdByAdminId'=>$row['created_by_admin_id'],'unread'=>mysqlBool($row['unread'])];
+        $unread=$pdo->prepare("SELECT COUNT(*) FROM support_threads t WHERE t.institution_id=:institution_id AND EXISTS(SELECT 1 FROM support_messages m WHERE m.institution_id=t.institution_id AND m.thread_id=t.id AND m.sender_scope='platform_super_admin' AND (t.tenant_last_read_at IS NULL OR m.created_at>t.tenant_last_read_at))"); $unread->execute(['institution_id'=>$institutionId]);
+        return ['items'=>$items,'unreadCount'=>(int)$unread->fetchColumn(),'meta'=>['page'=>$page,'pageSize'=>$pageSize,'total'=>$total,'pages'=>$pages]];
+    }
+    $institutionFilter=trim((string)($_GET['institutionId']??''));
+    if($institutionFilter!==''&&(!ctype_digit($institutionFilter)||(int)$institutionFilter<1))respond(['error'=>'Choose a valid institution.'],422);
+    $where=['i.deleted_at IS NULL'];$params=[];if($status!==''){ $where[]='t.status=:status';$params['status']=$status; }if($institutionFilter!==''){ $where[]='t.institution_id=:support_institution_id';$params['support_institution_id']=(int)$institutionFilter; }$filter=implode(' AND ',$where);
+    $count=$pdo->prepare("SELECT COUNT(*) FROM support_threads t INNER JOIN institutions i ON i.id=t.institution_id WHERE {$filter}");$count->execute($params);$total=(int)$count->fetchColumn();$pages=max(1,(int)ceil($total/$pageSize));$page=min($page,$pages);
+    $sql="SELECT t.institution_id,t.id,t.subject,t.status,t.created_at,t.last_message_at,i.name,i.slug,b.display_name,EXISTS(SELECT 1 FROM support_messages m WHERE m.institution_id=t.institution_id AND m.thread_id=t.id AND m.sender_scope='institution_admin' AND (t.platform_last_read_at IS NULL OR m.created_at>t.platform_last_read_at)) unread FROM support_threads t INNER JOIN institutions i ON i.id=t.institution_id LEFT JOIN institution_branding b ON b.institution_id=i.id WHERE {$filter} ORDER BY t.last_message_at DESC,t.id DESC LIMIT :limit OFFSET :offset";
+    $statement=$pdo->prepare($sql);foreach($params as $key=>$value)$statement->bindValue(':'.$key,$value);$statement->bindValue(':limit',$pageSize,PDO::PARAM_INT);$statement->bindValue(':offset',($page-1)*$pageSize,PDO::PARAM_INT);$statement->execute();$items=[];foreach($statement->fetchAll() as $row)$items[]=['institutionId'=>(int)$row['institution_id'],'institutionName'=>$row['display_name']?:$row['name'],'institutionSlug'=>$row['slug'],'id'=>$row['id'],'subject'=>$row['subject'],'status'=>$row['status'],'createdAt'=>mysqlIso($row['created_at']),'lastMessageAt'=>mysqlIso($row['last_message_at']),'unread'=>mysqlBool($row['unread'])];
+    $unread=$pdo->prepare("SELECT COUNT(*) FROM support_threads t INNER JOIN institutions i ON i.id=t.institution_id WHERE i.deleted_at IS NULL AND EXISTS(SELECT 1 FROM support_messages m WHERE m.institution_id=t.institution_id AND m.thread_id=t.id AND m.sender_scope='institution_admin' AND (t.platform_last_read_at IS NULL OR m.created_at>t.platform_last_read_at))");$unread->execute();
+    return ['items'=>$items,'unreadCount'=>(int)$unread->fetchColumn(),'meta'=>['page'=>$page,'pageSize'=>$pageSize,'total'=>$total,'pages'=>$pages]];
+}
+function mysqlSupportThreadDetail(string $threadId, bool $platform): array {
+    $pdo=mysqlAppPdo();
+    if($platform){$statement=$pdo->prepare("SELECT t.*,i.name institution_name,i.slug,b.display_name FROM support_threads t INNER JOIN institutions i ON i.id=t.institution_id LEFT JOIN institution_branding b ON b.institution_id=i.id WHERE t.id=:id AND i.deleted_at IS NULL LIMIT 1");$statement->execute(['id'=>$threadId]);}
+    else {$statement=$pdo->prepare('SELECT * FROM support_threads WHERE institution_id=:institution_id AND id=:id LIMIT 1');$statement->execute(['institution_id'=>mysqlCurrentInstitutionId(),'id'=>$threadId]);}
+    $thread=$statement->fetch();if(!$thread)respond(['error'=>'Support thread not found.'],404);
+    $readColumn=$platform?'platform_last_read_at':'tenant_last_read_at';$update=$pdo->prepare("UPDATE support_threads SET {$readColumn}=UTC_TIMESTAMP(6) WHERE institution_id=:institution_id AND id=:id");$update->execute(['institution_id'=>$thread['institution_id'],'id'=>$thread['id']]);
+    $messages=$pdo->prepare("SELECT m.id,m.sender_scope,m.sender_admin_id,m.sender_platform_admin_id,m.body,m.created_at,ta.name tenant_sender_name FROM support_messages m LEFT JOIN admin_users ta ON ta.institution_id=m.institution_id AND ta.id=m.sender_admin_id WHERE m.institution_id=:institution_id AND m.thread_id=:thread_id ORDER BY m.created_at ASC,m.id ASC");$messages->execute(['institution_id'=>$thread['institution_id'],'thread_id'=>$thread['id']]);$items=[];foreach($messages->fetchAll() as $message){$platformSender=$message['sender_scope']==='platform_super_admin';$items[]=['id'=>$message['id'],'senderScope'=>$message['sender_scope'],'senderLabel'=>$platformSender?'Platform Super Admin':($platform?$message['tenant_sender_name']?:'Tenant Admin':'Tenant Admin'),'body'=>$message['body'],'createdAt'=>mysqlIso($message['created_at'])];}
+    return ['thread'=>['id'=>$thread['id'],'institutionId'=>(int)$thread['institution_id'],'institutionName'=>$platform?($thread['display_name']?:$thread['institution_name']):null,'institutionSlug'=>$platform?$thread['slug']:null,'subject'=>$thread['subject'],'status'=>$thread['status'],'createdAt'=>mysqlIso($thread['created_at']),'lastMessageAt'=>mysqlIso($thread['last_message_at']),'resolvedAt'=>mysqlIso($thread['resolved_at']),'canReply'=>$thread['status']==='open'],'messages'=>$items];
+}
+function mysqlSupportTenantThreads(string $method): never {
+    $session=mysqlSupportTenantSession();
+    if($method==='GET')respond(mysqlSupportThreadList(false));
+    mysqlSupportRateLimit($session,'create',10,3600);$input=body();$subject=supportText($input['subject']??null,'Subject',180,true);$message=supportText($input['message']??null,'Message',5000);$institutionId=mysqlCurrentInstitutionId();$threadId=bin2hex(random_bytes(16));$messageId=bin2hex(random_bytes(16));$pdo=mysqlAppPdo();$correlation='support-'.bin2hex(random_bytes(12));$pdo->beginTransaction();try{$pdo->prepare("INSERT INTO support_threads (institution_id,id,subject,status,created_by_admin_id,created_at,updated_at,last_message_at,tenant_last_read_at) VALUES (:institution_id,:id,:subject,'open',:created_by,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))")->execute(['institution_id'=>$institutionId,'id'=>$threadId,'subject'=>$subject,'created_by'=>(string)$session['userId']]);$pdo->prepare("INSERT INTO support_messages (institution_id,id,thread_id,sender_scope,sender_admin_id,body,created_at) VALUES (:institution_id,:id,:thread_id,'institution_admin',:sender_admin_id,:body,UTC_TIMESTAMP(6))")->execute(['institution_id'=>$institutionId,'id'=>$messageId,'thread_id'=>$threadId,'sender_admin_id'=>(string)$session['userId'],'body'=>$message]);$metadata=['messageId'=>$messageId,'messageLength'=>textLength($message),'subjectLength'=>textLength($subject)];mysqlSupportTenantAudit($pdo,$institutionId,'admin',(string)$session['email'],'support_thread_created',$threadId,$metadata,$correlation);mysqlInsertPlatformAudit($pdo,(string)$session['email'],'tenant_support_thread_created',$institutionId,'support_thread',$threadId,'success',$correlation,$metadata);$pdo->commit();}catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();throw $error;}respond(['threadId'=>$threadId],201);
+}
+function mysqlSupportTenantThread(string $method): never {
+    $session=mysqlSupportTenantSession();if($method==='GET')respond(mysqlSupportThreadDetail(supportThreadId($_GET['id']??null),false));$input=body();if(($input['operation']??'reply')==='set-status')respond(['error'=>'Only the platform Super Admin can resolve or reopen a support thread.'],403);mysqlSupportRateLimit($session,'reply',60,3600);$threadId=supportThreadId($input['threadId']??null);$message=supportText($input['message']??null,'Message',5000);$institutionId=mysqlCurrentInstitutionId();$check=mysqlAppPdo()->prepare('SELECT status FROM support_threads WHERE institution_id=:institution_id AND id=:id LIMIT 1');$check->execute(['institution_id'=>$institutionId,'id'=>$threadId]);$thread=$check->fetch();if(!$thread)respond(['error'=>'Support thread not found.'],404);if($thread['status']!=='open')respond(['error'=>'This support thread is resolved and can be reopened only by the platform Super Admin.'],409);$messageId=bin2hex(random_bytes(16));$pdo=mysqlAppPdo();$correlation='support-'.bin2hex(random_bytes(12));$pdo->beginTransaction();try{$insert=$pdo->prepare("INSERT INTO support_messages (institution_id,id,thread_id,sender_scope,sender_admin_id,body,created_at) VALUES (:institution_id,:id,:thread_id,'institution_admin',:sender_admin_id,:body,UTC_TIMESTAMP(6))");$insert->execute(['institution_id'=>$institutionId,'id'=>$messageId,'thread_id'=>$threadId,'sender_admin_id'=>(string)$session['userId'],'body'=>$message]);$pdo->prepare("UPDATE support_threads SET last_message_at=UTC_TIMESTAMP(6),updated_at=UTC_TIMESTAMP(6) WHERE institution_id=:institution_id AND id=:id AND status='open'")->execute(['institution_id'=>$institutionId,'id'=>$threadId]);$metadata=['messageId'=>$messageId,'messageLength'=>textLength($message)];mysqlSupportTenantAudit($pdo,$institutionId,'admin',(string)$session['email'],'support_thread_replied',$threadId,$metadata,$correlation);mysqlInsertPlatformAudit($pdo,(string)$session['email'],'tenant_support_thread_replied',$institutionId,'support_thread',$threadId,'success',$correlation,$metadata);$pdo->commit();}catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();throw $error;}respond(['messageId'=>$messageId],201);
+}
+function mysqlSupportPlatformThreads(): never { mysqlSupportPlatformSession();respond(mysqlSupportThreadList(true)); }
+function mysqlSupportPlatformThread(string $method): never {
+    $session=mysqlSupportPlatformSession();if($method==='GET')respond(mysqlSupportThreadDetail(supportThreadId($_GET['id']??null),true));$input=body();$threadId=supportThreadId($input['threadId']??null);$operation=(string)($input['operation']??'reply');$pdo=mysqlAppPdo();$lookup=$pdo->prepare('SELECT t.institution_id,t.status FROM support_threads t INNER JOIN institutions i ON i.id=t.institution_id WHERE t.id=:id AND i.deleted_at IS NULL LIMIT 1');$lookup->execute(['id'=>$threadId]);$thread=$lookup->fetch();if(!$thread)respond(['error'=>'Support thread not found.'],404);$institutionId=(int)$thread['institution_id'];$correlation='support-'.bin2hex(random_bytes(12));
+    if($operation==='reply'){$message=supportText($input['message']??null,'Message',5000);if($thread['status']!=='open')respond(['error'=>'Resolve status must be reopened before replying.'],409);$messageId=bin2hex(random_bytes(16));$pdo->beginTransaction();try{$pdo->prepare("INSERT INTO support_messages (institution_id,id,thread_id,sender_scope,sender_platform_admin_id,body,created_at) VALUES (:institution_id,:id,:thread_id,'platform_super_admin',:sender_platform_admin_id,:body,UTC_TIMESTAMP(6))")->execute(['institution_id'=>$institutionId,'id'=>$messageId,'thread_id'=>$threadId,'sender_platform_admin_id'=>(string)$session['userId'],'body'=>$message]);$pdo->prepare("UPDATE support_threads SET last_message_at=UTC_TIMESTAMP(6),updated_at=UTC_TIMESTAMP(6) WHERE institution_id=:institution_id AND id=:id AND status='open'")->execute(['institution_id'=>$institutionId,'id'=>$threadId]);$metadata=['messageId'=>$messageId,'messageLength'=>textLength($message)];mysqlSupportTenantAudit($pdo,$institutionId,'platform_admin',(string)$session['email'],'platform_support_reply_received',$threadId,$metadata,$correlation);mysqlInsertPlatformAudit($pdo,(string)$session['email'],'platform_support_thread_replied',$institutionId,'support_thread',$threadId,'success',$correlation,$metadata);$pdo->commit();}catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();throw $error;}respond(['messageId'=>$messageId],201);}
+    if($operation==='set-status'){$status=(string)($input['status']??'');if(!in_array($status,['open','resolved'],true))respond(['error'=>'Choose open or resolved status.'],422);if($status===$thread['status'])respond(['status'=>$status]);$pdo->beginTransaction();try{$statement=$pdo->prepare("UPDATE support_threads SET status=:status,updated_at=UTC_TIMESTAMP(6),resolved_at=".($status==='resolved'?'UTC_TIMESTAMP(6)':'NULL').",resolved_by_platform_admin_id=".($status==='resolved'?':platform_admin_id':'NULL')." WHERE institution_id=:institution_id AND id=:id");$params=['status'=>$status,'institution_id'=>$institutionId,'id'=>$threadId];if($status==='resolved')$params['platform_admin_id']=(string)$session['userId'];$statement->execute($params);$action=$status==='resolved'?'support_thread_resolved':'support_thread_reopened';$metadata=['beforeStatus'=>$thread['status'],'afterStatus'=>$status];mysqlSupportTenantAudit($pdo,$institutionId,'platform_admin',(string)$session['email'],$action,$threadId,$metadata,$correlation);mysqlInsertPlatformAudit($pdo,(string)$session['email'],'platform_'.$action,$institutionId,'support_thread',$threadId,'success',$correlation,$metadata);$pdo->commit();}catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();throw $error;}respond(['status'=>$status]);}
+    respond(['error'=>'Unknown support-thread action.'],422);
+}
 function mysqlFastRoute(string $action, string $method): bool {
     // These requests are safe to process without the compatibility loader.
     if ($action === 'algebra-budget-probe' && $method === 'POST' && PHP_SAPI === 'cli' && getenv('CBT_ALGEBRA_MOCK_BUDGET') === '1') { algebraBudgetReserve((int)getenv('CBT_ALGEBRA_MOCK_BUDGET_ID')); respond(['reserved'=>true]); }
@@ -2748,6 +2867,10 @@ function mysqlFastRoute(string $action, string $method): bool {
     if ($action === 'algebra-anomaly-flags' && $method === 'POST') { $empty = []; enforceGeneralApiRateLimit($empty); requireCsrf(); mysqlAlgebraAnomalyFlags(); }
     if ($action === 'algebra-communication-draft' && $method === 'POST') { $empty = []; enforceGeneralApiRateLimit($empty); requireCsrf(); mysqlAlgebraCommunicationDraft(); }
     if ($action === 'algebra-result-report' && $method === 'POST') { $empty = []; enforceGeneralApiRateLimit($empty); requireCsrf(); mysqlAlgebraResultReport(); }
+    if ($action === 'support-threads' && in_array($method, ['GET','POST'], true)) { $empty = []; enforceGeneralApiRateLimit($empty); if ($method === 'POST') requireCsrf(); mysqlSupportTenantThreads($method); }
+    if ($action === 'support-thread' && in_array($method, ['GET','POST'], true)) { $empty = []; enforceGeneralApiRateLimit($empty); if ($method === 'POST') requireCsrf(); mysqlSupportTenantThread($method); }
+    if ($action === 'platform-support-threads' && $method === 'GET') { $empty = []; enforceGeneralApiRateLimit($empty); mysqlSupportPlatformThreads(); }
+    if ($action === 'platform-support-thread' && in_array($method, ['GET','POST'], true)) { $empty = []; enforceGeneralApiRateLimit($empty); if ($method === 'POST') requireCsrf(); mysqlSupportPlatformThread($method); }
     return false;
 }
 if (mysqlStorageEnabled() && mysqlFastRoute($action, $method)) exit;

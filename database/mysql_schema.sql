@@ -493,3 +493,49 @@ CREATE TABLE IF NOT EXISTS algebra_requests (
   CONSTRAINT fk_algebra_requests_platform_admin FOREIGN KEY (requested_by_platform_admin_id) REFERENCES platform_admin_users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT chk_algebra_requests_one_actor CHECK ((requested_by_admin_id IS NOT NULL AND requested_by_platform_admin_id IS NULL) OR (requested_by_admin_id IS NULL AND requested_by_platform_admin_id IS NOT NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Support messaging is intentionally tenant-aware.  Platform visibility is
+-- granted only through platform-admin endpoints; messages never contain or
+-- expose academic/student records.
+CREATE TABLE IF NOT EXISTS support_threads (
+  institution_id INT UNSIGNED NOT NULL,
+  id CHAR(32) NOT NULL,
+  subject VARCHAR(180) NOT NULL,
+  status ENUM('open','resolved') NOT NULL DEFAULT 'open',
+  created_by_admin_id VARCHAR(128) NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  last_message_at DATETIME(6) NOT NULL,
+  resolved_at DATETIME(6) NULL,
+  resolved_by_platform_admin_id VARCHAR(128) NULL,
+  tenant_last_read_at DATETIME(6) NULL,
+  platform_last_read_at DATETIME(6) NULL,
+  PRIMARY KEY (institution_id,id),
+  KEY ix_support_threads_tenant_inbox (institution_id,status,last_message_at),
+  KEY ix_support_threads_platform_inbox (status,last_message_at),
+  KEY ix_support_threads_creator (institution_id,created_by_admin_id,created_at),
+  CONSTRAINT fk_support_threads_institution FOREIGN KEY (institution_id) REFERENCES institutions (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT fk_support_threads_creator FOREIGN KEY (institution_id,created_by_admin_id) REFERENCES admin_users (institution_id,id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT fk_support_threads_resolver FOREIGN KEY (resolved_by_platform_admin_id) REFERENCES platform_admin_users (id) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS support_messages (
+  institution_id INT UNSIGNED NOT NULL,
+  id CHAR(32) NOT NULL,
+  thread_id CHAR(32) NOT NULL,
+  sender_scope ENUM('institution_admin','platform_super_admin') NOT NULL,
+  sender_admin_id VARCHAR(128) NULL,
+  sender_platform_admin_id VARCHAR(128) NULL,
+  body TEXT NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  PRIMARY KEY (institution_id,id),
+  KEY ix_support_messages_thread (institution_id,thread_id,created_at,id),
+  KEY ix_support_messages_tenant_unread (institution_id,sender_scope,created_at),
+  CONSTRAINT fk_support_messages_thread FOREIGN KEY (institution_id,thread_id) REFERENCES support_threads (institution_id,id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT fk_support_messages_tenant_sender FOREIGN KEY (institution_id,sender_admin_id) REFERENCES admin_users (institution_id,id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT fk_support_messages_platform_sender FOREIGN KEY (sender_platform_admin_id) REFERENCES platform_admin_users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT chk_support_messages_one_sender CHECK (
+    (sender_scope='institution_admin' AND sender_admin_id IS NOT NULL AND sender_platform_admin_id IS NULL)
+    OR (sender_scope='platform_super_admin' AND sender_admin_id IS NULL AND sender_platform_admin_id IS NOT NULL)
+  )
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
