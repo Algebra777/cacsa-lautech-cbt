@@ -288,6 +288,21 @@ function query(action, params = {}) {
   const suffix = search.toString();
   return `${API_URL}${encodeURIComponent(action)}${suffix ? `&${suffix}` : ''}`;
 }
+async function fetchApi(url, options) {
+  // A tunnel reconnect or a brief web-server restart can interrupt one fetch
+  // while the page itself is still loaded. Retry GET requests before
+  // treating the service as unavailable.
+  let lastError;
+  const attempts = String(options.method || 'GET').toUpperCase() === 'GET' ? 3 : 1;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try { return await fetch(url, {...options, cache: 'no-store'}); }
+    catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
 async function api(action, options = {}, params = {}) {
   const adminAuthVersion = state.adminAuthVersion;
   const {admin: requireAdmin = false, ...fetchOptions} = options;
@@ -298,7 +313,7 @@ async function api(action, options = {}, params = {}) {
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const headers = {...(options.body && !isFormData ? {'Content-Type': 'application/json'} : {}), ...(mutating && state.csrfToken ? {'X-CSRF-Token': state.csrfToken} : {}), ...options.headers};
   let response;
-  try { response = await fetch(query(action, params), {...fetchOptions, headers, credentials: 'same-origin'}); }
+  try { response = await fetchApi(query(action, params), {...fetchOptions, headers, credentials: 'same-origin'}); }
   catch { throw new Error('Cannot reach the server. Check your connection and try again.'); }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -562,6 +577,16 @@ async function render() {
   try { await loadCurrentBranding(); }
   catch (error) {
     if (error.maintenance) { app.innerHTML = maintenancePage(); return; }
+    // Branding is cosmetic at this point. An unauthenticated administrator
+    // must still be able to reach the normal sign-in page if a short-lived
+    // network interruption affects the bootstrap request.
+    if (isAdmin && !state.adminAuthenticated) {
+      if (isPlatformSurface()) state.platformBranding = {...PLATFORM_BRANDING_FALLBACK};
+      else state.branding = {...DEFAULT_BRANDING};
+      applyInstitutionBranding();
+      app.innerHTML = adminLoginPage();
+      return;
+    }
     app.innerHTML = `<main class="center-page"><section class="auth-card"><h1>Unable to load</h1><p>${esc(error.message)}</p><button class="primary-btn" data-action="retry">Try again</button></section></main>`;
     return;
   }
