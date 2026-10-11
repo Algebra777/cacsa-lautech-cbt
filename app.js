@@ -3098,19 +3098,33 @@ function logIntegrity(eventName) {
   }).catch(() => {});
 }
 function startDevtoolsSignal() {
-  // This is a best-effort browser signal only. It can be bypassed and must never be treated as proof that DevTools was opened.
+  // Never infer DevTools from window dimensions. Browser chrome, display
+  // scaling, accessibility tools, and normal resizing can all produce the
+  // same geometry and previously generated a false signal every few seconds.
+  // Explicit DevTools shortcut attempts are handled by the keydown listener
+  // below and continue through the configured integrity policy.
   clearInterval(state.devtoolsTimer);
-  if (!state.attempt?.session?.id || parts()[1] !== 'exam') return;
-  state.devtoolsTimer = setInterval(() => {
-    const widthDelta = Math.abs(window.outerWidth - window.innerWidth), heightDelta = Math.abs(window.outerHeight - window.innerHeight);
-    if (window.innerWidth >= 700 && (widthDelta > 180 || heightDelta > 180)) logIntegrity('devtools');
-  }, 1800);
+  state.devtoolsTimer = null;
 }
+function isActiveExamSession() {
+  return parts()[1] === 'exam' && Boolean(state.attempt?.session?.id);
+}
+document.addEventListener('keydown', event => {
+  if (!isActiveExamSession()) return;
+  const key = String(event.key || '').toLowerCase();
+  // These are the standard browser DevTools shortcuts. Unlike viewport-size
+  // guesses, they are actual candidate actions and cannot be emitted by the
+  // live monitor's five-second refresh.
+  if (key === 'f12' || (event.ctrlKey && event.shiftKey && ['i', 'j', 'c'].includes(key))) {
+    event.preventDefault();
+    logIntegrity('devtools');
+  }
+});
 document.addEventListener('visibilitychange', () => { if (document.hidden) logIntegrity('tab_switch'); });
 window.addEventListener('blur', () => logIntegrity('blur'));
-document.addEventListener('contextmenu', event => { if (parts()[1] === 'exam' && state.attempt?.session?.id) { event.preventDefault(); logIntegrity('context_menu'); } });
-document.addEventListener('copy', event => { if (parts()[1] === 'exam' && state.attempt?.session?.id) { event.preventDefault(); logIntegrity('copy'); } });
-document.addEventListener('paste', event => { if (parts()[1] === 'exam' && state.attempt?.session?.id) { event.preventDefault(); logIntegrity('paste'); } });
+document.addEventListener('contextmenu', event => { if (isActiveExamSession()) { event.preventDefault(); logIntegrity('context_menu'); } });
+document.addEventListener('copy', event => { if (isActiveExamSession()) { event.preventDefault(); logIntegrity('copy'); } });
+document.addEventListener('paste', event => { if (isActiveExamSession()) { event.preventDefault(); logIntegrity('paste'); } });
 window.addEventListener('popstate', render);
 if (!/\/(?:admin|student)(?:\/|$)/.test(location.pathname)) history.replaceState(null, '', `${APP_BASE}/student/selection`);
 render();
