@@ -4,3 +4,15 @@ cbt-data.json
 database/backups/*.json
 database/backups/**/*.json
 database/.two-factor.key
+
+# Local-only CACSA authentication investigation artifacts. These may include
+# production-adjacent session metadata or are tied to a developer's local
+# environment, so they must never be staged or published.
+scripts/inspect_cacsa_admin_identity_facts.php
+scripts/inspect_cacsa_admin_sessions.php
+scripts/inspect_cacsa_roles.php
+scripts/inspect_recent_auth_events.php
+scripts/live_auth_trace.log
+scripts/live_tenant_session_persistence_fix.patch
+scripts/test_live_tenant_fresh_login_cookie_flow.php
+scripts/verify_cacsa_superadmin_separation.php
