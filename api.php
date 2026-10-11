@@ -3,7 +3,11 @@
 declare(strict_types=1);
 
 class AlgebraProviderException extends RuntimeException {
-    public function __construct(string $message, public readonly int $httpStatus = 502) { parent::__construct($message); }
+    public function __construct(string $message, public readonly int $httpStatus = 502, ?string $diagnosticMessage = null) {
+        parent::__construct($message);
+        $this->diagnosticMessage = $diagnosticMessage ?? $message;
+    }
+    public readonly string $diagnosticMessage;
 }
 final class AlgebraDailyQuotaException extends AlgebraProviderException {
     public function __construct(public readonly string $blockedUntil) { parent::__construct("Algebra's daily AI limit has been reached. Please try again later.", 429); }
@@ -51,7 +55,9 @@ header('X-Frame-Options: DENY');
 header('Cross-Origin-Opener-Policy: same-origin');
 header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()');
 header("Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self'");
-if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+// Match the proxy-aware HTTPS detection used for Secure cookies. TLS commonly
+// terminates at ngrok or a reverse proxy, leaving Apache's HTTPS flag off.
+if (secureCookie()) header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
 header('Cache-Control: no-store');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Admin-Token, X-Session-Token, X-CSRF-Token');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
@@ -111,6 +117,12 @@ const PDF_IMPORT_MAX_ATTEMPTS = 3;
 const PDF_IMPORT_MAX_BYTES = 10 * 1024 * 1024;
 const PDF_IMPORT_MAX_PAGES = 150;
 const PDF_IMPORT_MAX_QUESTIONS = 100;
+// Admission limits are tenant-wide, not per administrator: extra admin
+// accounts must not be able to bypass the shared processing allowance.
+const PDF_IMPORT_MAX_ACTIVE_PER_TENANT = 3;
+const PDF_IMPORT_MAX_ACTIVE_GLOBAL = 24;
+const PDF_IMPORT_MAX_SUBMISSIONS_PER_TENANT_PER_DAY = 12;
+const PDF_IMPORT_MAX_SUBMISSIONS_GLOBAL_PER_DAY = 200;
 const OPENROUTER_PDF_IMPORT_MAX_BYTES = 10 * 1024 * 1024;
 const OPENROUTER_PDF_IMPORT_MAX_PAGES = 150;
 const OPENROUTER_PDF_IMPORT_MAX_QUESTIONS = 100;
@@ -627,8 +639,7 @@ function uploadedPdfQuestionImport(int $maximumBytes = PDF_IMPORT_MAX_BYTES, str
     if (!str_starts_with((string)$header, '%PDF-') || ($mime !== '' && !in_array($mime, ['application/pdf', 'application/x-pdf', 'application/octet-stream'], true))) respond(['error' => 'Upload a valid PDF document, not a renamed file.'], 422);
     return ['path' => $path, 'filename' => basename($filename), 'size' => $size];
 }
-function queuePdfImportSource(string $provider): array {
-    $limits = pdfQueueLimits($provider); $upload = uploadedPdfQuestionImport((int)$limits['bytes'], (string)$limits['label']);
+function queuePdfImportSource(array $upload): array {
     $institutionId = mysqlCurrentInstitutionId(); $directory = PDF_IMPORT_UPLOAD_DIRECTORY . DIRECTORY_SEPARATOR . 'institution-' . $institutionId;
     if (!is_dir($directory)) {
         if (!mkdir($directory, 0700, true)) throw new PdfUploadException('PDF storage initialization failed: mkdir', 503, 'The PDF import service is temporarily unavailable. The server could not initialize storage. Please try again in a moment or contact the administrator with code: PDF_STORAGE_INIT_FAILED.');
@@ -641,6 +652,28 @@ function queuePdfImportSource(string $provider): array {
     if ($checksum === false) throw new PdfUploadException('PDF checksum generation failed: hash_file', 503, 'The PDF file was stored but could not be verified. Please try uploading again.');
     return ['id' => $jobId, 'sourceKey' => 'uploads/pdf-imports/institution-' . $institutionId . '/' . $filename, 'filename' => $upload['filename'], 'size' => $upload['size'], 'checksum' => $checksum];
 }
+/** Serialize admissions so simultaneous requests cannot overrun a capacity check. */
+function acquirePdfImportQueueAdmission(PDO $pdo, int $institutionId): void {
+    $lock = $pdo->query("SELECT GET_LOCK('berevion_pdf_import_queue_admission', 5)")->fetchColumn();
+    if ((int)$lock !== 1) throw new PdfUploadException('PDF queue admission lock was unavailable.', 503, 'The PDF import queue is busy. Please try again in a moment.');
+    try {
+        $activeSql = "status IN ('queued','running','review_ready')";
+        $globalActive = (int)$pdo->query("SELECT COUNT(*) FROM pdf_import_jobs WHERE {$activeSql}")->fetchColumn();
+        if ($globalActive >= PDF_IMPORT_MAX_ACTIVE_GLOBAL) throw new PdfUploadException('Global PDF import queue capacity reached.', 503, 'The shared PDF import queue is temporarily full. Please try again later.');
+        $tenantActive = $pdo->prepare("SELECT COUNT(*) FROM pdf_import_jobs WHERE institution_id=:institution_id AND {$activeSql}");
+        $tenantActive->execute(['institution_id' => $institutionId]);
+        if ((int)$tenantActive->fetchColumn() >= PDF_IMPORT_MAX_ACTIVE_PER_TENANT) throw new PdfUploadException('Tenant PDF import queue capacity reached.', 429, 'Your institution already has the maximum number of PDF imports awaiting processing or review. Complete or cancel one before adding another.');
+        $globalDaily = (int)$pdo->query('SELECT COUNT(*) FROM pdf_import_jobs WHERE created_at >= DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 1 DAY)')->fetchColumn();
+        if ($globalDaily >= PDF_IMPORT_MAX_SUBMISSIONS_GLOBAL_PER_DAY) throw new PdfUploadException('Global PDF import daily submission capacity reached.', 503, 'The shared PDF import allowance is temporarily exhausted. Please try again later.');
+        $tenantDaily = $pdo->prepare('SELECT COUNT(*) FROM pdf_import_jobs WHERE institution_id=:institution_id AND created_at >= DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 1 DAY)');
+        $tenantDaily->execute(['institution_id' => $institutionId]);
+        if ((int)$tenantDaily->fetchColumn() >= PDF_IMPORT_MAX_SUBMISSIONS_PER_TENANT_PER_DAY) throw new PdfUploadException('Tenant PDF import daily submission capacity reached.', 429, 'Your institution has reached its PDF import allowance for the last 24 hours. Please try again later.');
+    } catch (Throwable $error) {
+        $pdo->query("DO RELEASE_LOCK('berevion_pdf_import_queue_admission')");
+        throw $error;
+    }
+}
+function releasePdfImportQueueAdmission(PDO $pdo): void { $pdo->query("DO RELEASE_LOCK('berevion_pdf_import_queue_admission')"); }
 function pdfImportJobPayload(array $row, bool $includeItems = false): array {
     $items = $includeItems && (string)$row['status'] === 'review_ready' ? mysqlJson($row['parsed_items_json'] ?? null, []) : [];
     return ['id' => (string)$row['id'], 'courseId' => (string)$row['course_id'], 'provider' => (string)$row['provider'], 'status' => (string)$row['status'], 'filename' => (string)$row['source_filename'], 'pages' => $row['page_count'] === null ? null : (int)$row['page_count'], 'items' => is_array($items) ? $items : [], 'lowConfidence' => $row['low_confidence_count'] === null ? 0 : (int)$row['low_confidence_count'], 'attemptCount' => (int)$row['attempt_count'], 'error' => in_array((string)$row['status'], ['failed','cancelled'], true) ? (string)($row['error_message'] ?? '') : '', 'createdAt' => mysqlIso($row['created_at']), 'reviewExpiresAt' => mysqlIso($row['review_expires_at'])];
@@ -1119,10 +1152,42 @@ function cookieValues(string $name): array {
     }
     return array_values(array_unique($values));
 }
+/** Incident-only telemetry; bearer-cookie values never reach the error log. */
+function authTrace(string $event, array $context = []): void {
+    $context['event'] = $event;
+    $context['at'] = gmdate('c');
+    error_log('BEREVION_AUTH_TRACE ' . json_encode($context, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+}
+function authTraceSetCookieHeaders(): array {
+    $headers = [];
+    foreach (headers_list() as $header) {
+        if (stripos($header, 'Set-Cookie:') !== 0) continue;
+        $headers[] = preg_replace_callback('/^(Set-Cookie:\\s*[^=]+=)([^;]*)/i', static function (array $match): string {
+            $value = rawurldecode($match[2]);
+            $marker = $value === '' || $value === 'deleted' ? $value : 'sha256:' . substr(tokenHash($value), 0, 16);
+            return $match[1] . $marker;
+        }, $header) ?? $header;
+    }
+    return $headers;
+}
 function setSessionCookie(string $name, string $value, int $expiresAt): void {
     $path = cookiePath();
     if ($path !== '/') clearLegacyRootCookie($name);
     setcookie($name, $value, ['expires' => $expiresAt, 'path' => $path, 'secure' => secureCookie(), 'httponly' => true, 'samesite' => 'Strict']);
+}
+/**
+ * A tenant Admin signing in at /i/{slug}/ must take ownership of that browser
+ * context. Retaining a parent-path platform cookie is unnecessary for a
+ * tenant login and can make an interrupted/old tenant sign-in appear to be a
+ * platform session. Platform support access never calls this helper.
+ */
+function setTenantAdminSessionCookie(string $value, int $expiresAt): void {
+    $requestPath = (string)(parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?? '');
+    if (preg_match('~^(.*)/i/[a-z0-9][a-z0-9-]{0,118}/api\.php$~i', $requestPath, $matches)) {
+        $parentPath = rtrim((string)$matches[1], '/') . '/';
+        if ($parentPath !== cookiePath()) setcookie('CBT_ADMIN_SESSION', '', ['expires' => time() - 3600, 'path' => $parentPath, 'secure' => secureCookie(), 'httponly' => true, 'samesite' => 'Strict']);
+    }
+    setSessionCookie('CBT_ADMIN_SESSION', $value, $expiresAt);
 }
 function clearSessionCookie(string $name): void {
     $path = cookiePath();
@@ -1420,13 +1485,72 @@ function requiredPermission(): ?string {
     };
 }
 function isInstitutionAdminRole(string $roleId): bool {
-    // superadmin is accepted only as a short-lived compatibility role for the
-    // migrated CACSA bootstrap session; newly provisioned tenants use admin.
     return in_array($roleId, ['admin', 'superadmin'], true);
+}
+/** Actions whose authority changes tenant control-plane state, not day-to-day academic work. */
+function isTenantSuperadminOnlyAction(string $action): bool {
+    return in_array($action, [
+        'roles', 'admin-users', 'admin-approvals', 'backups',
+        'backup-restore-validate', 'backup-restore', 'emergency-codes',
+    ], true);
+}
+function requireTenantSuperadminForControlPlane(array $record, string $action): void {
+    if (($record['scope'] ?? '') === 'platform' || !isTenantSuperadminOnlyAction($action)) return;
+    if (($record['roleId'] ?? '') === 'superadmin') return;
+    respond(['error' => 'Only this institution’s Superadmin can manage administrator accounts, roles, approval requests, backups, and emergency codes.'], 403);
 }
 function requestHasExplicitInstitutionPath(): bool {
     $path = (string)(parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?? '');
     return (bool)preg_match('~(?:^|/)i/[a-z0-9][a-z0-9-]{0,118}(?:/|$)~i', $path);
+}
+/**
+ * Platform identities have broad aggregate authority, but deliberately do not
+ * receive tenant data merely by changing the URL.  A support-access grant is
+ * bound to one tenant and to the caller's current platform session token.
+ */
+function mysqlActivePlatformSupportAccess(array $session): ?array {
+    if (($session['scope'] ?? '') !== 'platform' || !requestHasExplicitInstitutionPath()) return null;
+    $institutionId = mysqlCurrentInstitutionId(); $pdo = mysqlAppPdo();
+    $expired = $pdo->prepare("SELECT id FROM platform_support_access_sessions WHERE institution_id=:institution_id AND platform_admin_id=:platform_admin_id AND platform_session_token_hash=:token_hash AND ended_at IS NULL AND expires_at<=UTC_TIMESTAMP(6) FOR UPDATE");
+    $expired->execute(['institution_id'=>$institutionId,'platform_admin_id'=>(string)$session['userId'],'token_hash'=>(string)$session['tokenHash']]);
+    $expiredIds = $expired->fetchAll(PDO::FETCH_COLUMN);
+    if ($expiredIds) {
+        $close = $pdo->prepare("UPDATE platform_support_access_sessions SET ended_at=UTC_TIMESTAMP(6),ended_reason='expired' WHERE id=:id AND ended_at IS NULL");
+        foreach ($expiredIds as $id) {
+            $close->execute(['id'=>$id]);
+            if ($close->rowCount()) mysqlInsertPlatformAudit($pdo, (string)$session['email'], 'platform_support_access_expired', $institutionId, 'support_access', (string)$id, 'success', (string)($session['correlationId'] ?? ''), []);
+        }
+    }
+    $statement = $pdo->prepare("SELECT id,institution_id,reason,created_at,expires_at FROM platform_support_access_sessions WHERE institution_id=:institution_id AND platform_admin_id=:platform_admin_id AND platform_session_token_hash=:token_hash AND ended_at IS NULL AND expires_at>UTC_TIMESTAMP(6) ORDER BY created_at DESC LIMIT 1");
+    $statement->execute(['institution_id'=>$institutionId,'platform_admin_id'=>(string)$session['userId'],'token_hash'=>(string)$session['tokenHash']]);
+    $row = $statement->fetch();
+    if (!$row) return null;
+    return ['id'=>(string)$row['id'],'institutionId'=>(int)$row['institution_id'],'reason'=>(string)$row['reason'],'startedAt'=>mysqlIso($row['created_at']),'expiresAt'=>mysqlIso($row['expires_at'])];
+}
+function mysqlRequirePlatformTenantSupportAccess(array $session): ?array {
+    if (($session['scope'] ?? '') !== 'platform' || !requestHasExplicitInstitutionPath()) return null;
+    $access = mysqlActivePlatformSupportAccess($session);
+    if (!$access) {
+        $candidates = [];
+        foreach (cookieValues('CBT_ADMIN_SESSION') as $token) {
+            $hash = tokenHash($token);
+            $candidates[] = ['hashPrefix' => substr($hash, 0, 16), 'tenantSessionFound' => mysqlTenantSession($hash) !== null, 'platformSessionFound' => mysqlPlatformSession($hash) !== null];
+        }
+        authTrace('support_access_denied', ['action' => (string)($_GET['action'] ?? ''), 'requestUri' => (string)($_SERVER['REQUEST_URI'] ?? ''), 'resolvedScope' => (string)($session['scope'] ?? ''), 'resolvedSessionHashPrefix' => substr((string)($session['tokenHash'] ?? ''), 0, 16), 'cookieCandidates' => $candidates]);
+        respond(['error'=>'Tenant support access is required for this institution. Start a reasoned, time-boxed support session from the platform Institutions page before continuing.'],403);
+    }
+    return $access;
+}
+function mysqlClosePlatformSupportAccessForSession(array $session, string $reason = 'platform_logout'): void {
+    if (($session['scope'] ?? '') !== 'platform') return;
+    $pdo = mysqlAppPdo();
+    $active = $pdo->prepare('SELECT id,institution_id FROM platform_support_access_sessions WHERE platform_admin_id=:platform_admin_id AND platform_session_token_hash=:token_hash AND ended_at IS NULL FOR UPDATE');
+    $active->execute(['platform_admin_id'=>(string)$session['userId'],'token_hash'=>(string)$session['tokenHash']]);
+    $close = $pdo->prepare("UPDATE platform_support_access_sessions SET ended_at=UTC_TIMESTAMP(6),ended_reason=:reason WHERE id=:id AND ended_at IS NULL");
+    foreach ($active->fetchAll() as $row) {
+        $close->execute(['reason'=>$reason,'id'=>$row['id']]);
+        if ($close->rowCount()) mysqlInsertPlatformAudit($pdo, (string)$session['email'], 'platform_support_access_ended', (int)$row['institution_id'], 'support_access', (string)$row['id'], 'success', (string)($session['correlationId'] ?? ''), ['reason'=>$reason]);
+    }
 }
 /**
  * Tenant settings are always tied to the institution resolved from the URL.
@@ -1479,7 +1603,8 @@ function auth(bool $admin = false): ?array {
     }
     $roleId = $record['roleId'] ?? 'superadmin';
     $isPlatform = ($record['scope'] ?? '') === 'platform';
-    if (in_array($action, ['roles', 'admin-users', 'admin-approvals', 'backups', 'backup-restore-validate', 'backup-restore', 'emergency-codes', 'component-submission-delete'], true) && !$isPlatform && !isInstitutionAdminRole((string)$roleId)) respond(['error' => 'Only this institution’s Admin can manage roles, administrator accounts, approval requests, backups, emergency codes, and submission deletion.'], 403);
+    if ($isPlatform && $action !== 'admin-logout' && requestHasExplicitInstitutionPath()) mysqlRequirePlatformTenantSupportAccess($record);
+    requireTenantSuperadminForControlPlane($record, $action);
     $permission = requiredPermission(); $currentRole = findBy($data['roles'], 'id', $roleId); $permissions = $isPlatform ? ADMIN_PERMISSIONS : ($currentRole['permissions'] ?? ($record['permissions'] ?? ADMIN_PERMISSIONS));
     if ($permission && !in_array($permission, $permissions, true)) {
         respond(['error' => 'Your role does not have permission to perform this action.'], 403);
@@ -2356,6 +2481,8 @@ function mysqlFastRequireAdmin(): array {
     $action=(string)($_GET['action']??'');$record=mysqlRouteAwareAdminSession();
     if(!$record)respond(['error'=>'No active admin sign-in was found. Please sign in again.'],401);
     if(!empty($record['mustChangePassword'])&&!in_array($action,['admin-account','admin-logout'],true))respond(['error'=>'Change the initial temporary administrator password before accessing the administration workspace.'],403);
+    if(($record['scope']??'')==='platform'&&$action!=='admin-logout'&&requestHasExplicitInstitutionPath())mysqlRequirePlatformTenantSupportAccess($record);
+    requireTenantSuperadminForControlPlane($record,$action);
     $permission=requiredPermission();$permissions=(($record['scope']??'')==='platform')?ADMIN_PERMISSIONS:(array)($record['permissions']??[]);
     if($permission&&!in_array($permission,$permissions,true))respond(['error'=>'Your role does not have permission to perform this action.'],403);
     $now=date('c');$record['lastSeenAt']=$now;$record['expiresAt']=ADMIN_SESSION_EXPIRES_AT;
@@ -2519,14 +2646,20 @@ function algebraGeminiText(string $instruction, int $maximumTokens = 9000): stri
         if ($mode === '429') throw new AlgebraProviderException('Algebra is temporarily rate-limited. Please wait a moment and try again.', 429);
         if ($mode === 'daily429') throw new AlgebraDailyQuotaException(algebraMarkDailyBlocked());
         if ($mode === '503') throw new AlgebraProviderException('Algebra is temporarily unavailable. Please try again in a moment.', 503);
-        if ($mode === 'timeout') throw new AlgebraProviderException('Algebra could not reach Gemini after automatic retries. Please try again shortly.', 502);
+        if ($mode === 'timeout') throw new AlgebraProviderException('Algebra is temporarily unavailable. Please try again shortly.', 502);
         if ($mode === 'empty') throw new AlgebraProviderException('Algebra returned no usable response. Please try again.', 422);
         if ($mode === 'garbage') return 'not-json';
         return (string)getenv('CBT_ALGEBRA_MOCK_RESPONSE');
     }
     $apiKey = trim((string)getenv('GEMINI_API_KEY'));
-    if ($apiKey === '') throw new AlgebraProviderException('Algebra is not configured yet. Add GEMINI_API_KEY to the server .env file, then try again.', 503);
-    if (!function_exists('curl_init')) throw new AlgebraProviderException('Algebra requires the PHP cURL extension, which is not enabled on this server.', 503);
+    if ($apiKey === '') {
+        error_log('Berevion Algebra provider configuration failure: Gemini API key is unavailable.');
+        throw new AlgebraProviderException('Algebra is temporarily unavailable. Please contact the administrator.', 503);
+    }
+    if (!function_exists('curl_init')) {
+        error_log('Berevion Algebra provider configuration failure: PHP cURL is unavailable.');
+        throw new AlgebraProviderException('Algebra is temporarily unavailable. Please contact the administrator.', 503);
+    }
     // Algebra has its own provider setting so a capacity issue cannot alter PDF
     // imports or any other Gemini-backed workflow.
     $payload = ['model' => (string)(getenv('CBT_ALGEBRA_GEMINI_MODEL') ?: getenv('CBT_GEMINI_MODEL') ?: 'gemini-3.1-flash-lite'), 'input' => $instruction, 'generation_config' => ['temperature' => 0.2, 'thinking_level' => 'low', 'max_output_tokens' => $maximumTokens]];
@@ -2545,16 +2678,19 @@ function algebraGeminiText(string $instruction, int $maximumTokens = 9000): stri
     }
     if ($raw === false || $error !== '') {
         error_log('Berevion Algebra Gemini connection failed after retries: ' . $error);
-        throw new AlgebraProviderException('Algebra could not reach Gemini after automatic retries. Please try again shortly.', 502);
+        throw new AlgebraProviderException('Algebra is temporarily unavailable. Please try again shortly.', 502, 'Gemini connection failure after retries: ' . $error);
     }
     if ($status < 200 || $status >= 300 || !is_array($response)) {
         $message = trim((string)($response['error']['message'] ?? ''));
         error_log('Berevion Algebra Gemini response failed: HTTP ' . $status . ($message !== '' ? ' --- ' . substr($message, 0, 300) : ''));
         if ($status === 429) throw new AlgebraProviderException('Algebra is temporarily rate-limited. Please wait a moment and try again.', 429);
         if (in_array($status, [500, 502, 503, 504], true)) throw new AlgebraProviderException('Algebra is temporarily unavailable. Please try again in a moment.', 503);
-        throw new AlgebraProviderException($message !== '' ? 'Gemini rejected this Algebra request: ' . $message : 'Algebra could not complete this request.', 502);
+        throw new AlgebraProviderException('Algebra could not complete this request. Please try again later.', 502, 'Gemini rejected request with HTTP ' . $status . ($message !== '' ? ': ' . $message : ''));
     }
-    if (($response['status'] ?? 'completed') !== 'completed') throw new AlgebraProviderException('Algebra did not complete this request. Please try again.', 422);
+    if (($response['status'] ?? 'completed') !== 'completed') {
+        error_log('Berevion Algebra Gemini response did not complete: ' . substr((string)($response['status'] ?? 'unknown'), 0, 100));
+        throw new AlgebraProviderException('Algebra could not complete this request. Please try again later.', 422);
+    }
     $content = '';
     foreach (($response['steps'] ?? []) as $step) if (($step['type'] ?? '') === 'model_output') foreach (($step['content'] ?? []) as $part) if (($part['type'] ?? '') === 'text') $content .= (string)($part['text'] ?? '');
     if (trim($content) === '') throw new AlgebraProviderException('Algebra returned no usable response. Please try again.', 422);
@@ -2565,6 +2701,60 @@ function algebraDecodeJson(string $content): array {
     $decoded = json_decode($clean, true);
     if (!is_array($decoded)) throw new AlgebraProviderException('Algebra returned an invalid structured response. Nothing was saved; please try again.', 422);
     return $decoded;
+}
+/** Provider output is untrusted. Setup suggestions have no permissive
+ * pass-through: every object must have the exact allowlisted keys for the
+ * requested form, and every value is range- and type-checked before it can
+ * be displayed or copied into an administrator form. */
+function algebraExactObject(mixed $value, array $keys, string $label): array {
+    if (!is_array($value) || array_is_list($value)) throw new AlgebraProviderException('Algebra returned an invalid setup suggestion.', 422);
+    $actual = array_keys($value); $expected = array_values($keys); sort($actual); sort($expected);
+    if ($actual !== $expected) throw new AlgebraProviderException('Algebra returned an invalid setup suggestion.', 422);
+    return $value;
+}
+function algebraSetupText(mixed $value, int $maximum, bool $allowEmpty = false): string {
+    if (!is_string($value)) throw new AlgebraProviderException('Algebra returned an invalid setup suggestion.', 422);
+    $text = trim($value);
+    if ((!$allowEmpty && $text === '') || mb_strlen($text) > $maximum || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', $text)) throw new AlgebraProviderException('Algebra returned an invalid setup suggestion.', 422);
+    return $text;
+}
+function algebraSetupNumber(mixed $value, float $minimum, float $maximum, bool $integer = false): int|float {
+    if ((!is_int($value) && !is_float($value)) || !is_finite((float)$value) || (float)$value < $minimum || (float)$value > $maximum || ($integer && floor((float)$value) !== (float)$value)) throw new AlgebraProviderException('Algebra returned an invalid setup suggestion.', 422);
+    return $integer ? (int)$value : (float)$value;
+}
+function algebraSetupComponentFields(array $fields, bool $courseComponent = false): array {
+    $keys = $courseComponent ? ['maxMark','passThreshold','duration','questionCount'] : ['maxMark','passThreshold','duration','questionCount','status'];
+    $fields = algebraExactObject($fields, $keys, 'setup fields');
+    $max = algebraSetupNumber($fields['maxMark'], $courseComponent ? 0 : 0.01, 100);
+    $pass = algebraSetupNumber($fields['passThreshold'], 0, (float)$max);
+    $duration = algebraSetupNumber($fields['duration'], 1, 1440, true);
+    $questionCount = algebraSetupNumber($fields['questionCount'], 1, 500, true);
+    $clean = ['maxMark'=>$max,'passThreshold'=>$pass,'duration'=>$duration,'questionCount'=>$questionCount];
+    if (!$courseComponent) {
+        if ($fields['status'] !== 'draft') throw new AlgebraProviderException('Algebra returned an invalid setup suggestion.', 422);
+        $clean['status'] = 'draft';
+    }
+    return $clean;
+}
+function algebraSetupSuggestion(array $result, string $formType): array {
+    $result = algebraExactObject($result, ['summary','fields','notes'], 'setup suggestion');
+    $summary = algebraSetupText($result['summary'], 1500);
+    if (!is_array($result['notes']) || !array_is_list($result['notes']) || count($result['notes']) > 8) throw new AlgebraProviderException('Algebra returned an invalid setup suggestion.', 422);
+    $notes = []; foreach ($result['notes'] as $note) $notes[] = algebraSetupText($note, 500);
+    if (!is_array($result['fields'])) throw new AlgebraProviderException('Algebra returned an invalid setup suggestion.', 422);
+    if ($formType === 'component') return ['summary'=>$summary,'fields'=>algebraSetupComponentFields($result['fields']),'notes'=>$notes];
+    if ($formType === 'course') {
+        $fields = algebraExactObject($result['fields'], ['code','title','category','courseUnit','sessionLabel','semesterLabel','description','testMaxMark','testPassThreshold','testDuration','testQuestionCount','examMaxMark','examPassThreshold','examDuration','examQuestionCount'], 'course setup fields');
+        $test = algebraSetupComponentFields(['maxMark'=>$fields['testMaxMark'],'passThreshold'=>$fields['testPassThreshold'],'duration'=>$fields['testDuration'],'questionCount'=>$fields['testQuestionCount']], true);
+        $exam = algebraSetupComponentFields(['maxMark'=>$fields['examMaxMark'],'passThreshold'=>$fields['examPassThreshold'],'duration'=>$fields['examDuration'],'questionCount'=>$fields['examQuestionCount']], true);
+        if ($test['maxMark'] + $exam['maxMark'] <= 0 || $test['maxMark'] + $exam['maxMark'] > 100 || !in_array($fields['semesterLabel'], ['Harmattan Semester','Rain Semester'], true)) throw new AlgebraProviderException('Algebra returned an invalid setup suggestion.', 422);
+        return ['summary'=>$summary,'fields'=>['code'=>algebraSetupText($fields['code'],40),'title'=>algebraSetupText($fields['title'],190),'category'=>algebraSetupText($fields['category'],100),'courseUnit'=>algebraSetupNumber($fields['courseUnit'],1,6,true),'sessionLabel'=>algebraSetupText($fields['sessionLabel'],80),'semesterLabel'=>$fields['semesterLabel'],'description'=>algebraSetupText($fields['description'],4000,true),'testMaxMark'=>$test['maxMark'],'testPassThreshold'=>$test['passThreshold'],'testDuration'=>$test['duration'],'testQuestionCount'=>$test['questionCount'],'examMaxMark'=>$exam['maxMark'],'examPassThreshold'=>$exam['passThreshold'],'examDuration'=>$exam['duration'],'examQuestionCount'=>$exam['questionCount']],'notes'=>$notes];
+    }
+    $fields = algebraExactObject($result['fields'], ['bands'], 'grading-scale setup fields'); $bands = $fields['bands'];
+    if (!is_array($bands) || !array_is_list($bands) || count($bands) < 1 || count($bands) > 10) throw new AlgebraProviderException('Algebra returned an invalid setup suggestion.', 422);
+    $cleanBands = []; foreach ($bands as $band) { $band = algebraExactObject($band, ['minScore','maxScore','grade','gradePoint'], 'grading-scale band'); $minimum=algebraSetupNumber($band['minScore'],0,100); $maximum=algebraSetupNumber($band['maxScore'],$minimum,100); $grade=algebraSetupText($band['grade'],5); if (!preg_match('/^[A-Za-z0-9+_-]{1,5}$/',$grade)) throw new AlgebraProviderException('Algebra returned an invalid setup suggestion.',422); $cleanBands[]=['minScore'=>$minimum,'maxScore'=>$maximum,'grade'=>$grade,'gradePoint'=>algebraSetupNumber($band['gradePoint'],0,5)]; }
+    foreach ($cleanBands as $index => $band) foreach (array_slice($cleanBands, $index + 1) as $other) if ($band['minScore'] <= $other['maxScore'] && $other['minScore'] <= $band['maxScore']) throw new AlgebraProviderException('Algebra returned an invalid setup suggestion.',422);
+    return ['summary'=>$summary,'fields'=>['bands'=>$cleanBands],'notes'=>$notes];
 }
 function algebraQuestionItems(array $payload, int $expectedCount): array {
     $rows = $payload['questions'] ?? null;
@@ -2712,10 +2902,8 @@ function mysqlAlgebraSetupSuggestion(): never {
             'grading_scale' => '{"summary":"...","fields":{"bands":[{"minScore":70,"maxScore":100,"grade":"A","gradePoint":5}]},"notes":["..."]}',
         ];
         $instruction = 'You are Algebra, an education setup assistant. Return ONLY JSON matching this shape: ' . $shapes[$formType] . '. Suggest values for the existing ' . $formType . ' form from this administrator brief: ' . $brief . '. Never claim the values were saved, never set an assessment active, never include student data, and never add instructions to submit automatically.';
-        $result = algebraDecodeJson(algebraGeminiText($instruction, 3500));
-        $summary = algebraBoundedText($result['summary'] ?? '', 1500); $fields = $result['fields'] ?? null; $notes = $result['notes'] ?? [];
-        if ($summary === '' || !is_array($fields) || !is_array($notes) || !array_is_list($notes)) throw new AlgebraProviderException('Algebra returned an invalid setup suggestion.', 422);
-        $output = ['formType'=>$formType,'summary'=>$summary,'fields'=>$fields,'notes'=>array_values(array_slice(array_filter(array_map(fn($item)=>algebraBoundedText($item,500),$notes)),0,8))];
+        $validated = algebraSetupSuggestion(algebraDecodeJson(algebraGeminiText($instruction, 3500)), $formType);
+        $output = ['formType'=>$formType] + $validated;
         algebraFinishRequest($pdo,$requestId,'completed',$output);
         algebraAudit($pdo,$session,'algebra_setup_suggestion_generated','setup_form',$formType,['requestId'=>$requestId,'readOnly'=>true]);
         respond(['requestId'=>$requestId] + $output);
@@ -2825,8 +3013,19 @@ function mysqlSupportThreadDetail(string $threadId, bool $platform): array {
     else {$statement=$pdo->prepare('SELECT * FROM support_threads WHERE institution_id=:institution_id AND id=:id LIMIT 1');$statement->execute(['institution_id'=>mysqlCurrentInstitutionId(),'id'=>$threadId]);}
     $thread=$statement->fetch();if(!$thread)respond(['error'=>'Support thread not found.'],404);
     $readColumn=$platform?'platform_last_read_at':'tenant_last_read_at';$update=$pdo->prepare("UPDATE support_threads SET {$readColumn}=UTC_TIMESTAMP(6) WHERE institution_id=:institution_id AND id=:id");$update->execute(['institution_id'=>$thread['institution_id'],'id'=>$thread['id']]);
+    $threadPayload=['id'=>$thread['id'],'institutionId'=>(int)$thread['institution_id'],'institutionName'=>$platform?($thread['display_name']?:$thread['institution_name']):null,'institutionSlug'=>$platform?$thread['slug']:null,'subject'=>$thread['subject'],'status'=>$thread['status'],'createdAt'=>mysqlIso($thread['created_at']),'lastMessageAt'=>mysqlIso($thread['last_message_at']),'resolvedAt'=>mysqlIso($thread['resolved_at']),'canReply'=>$thread['status']==='open'];
+    if($platform){
+        // Platform support intentionally receives thread metadata only. Do not fetch
+        // message rows here: their bodies remain available solely to the owning tenant.
+        $count=$pdo->prepare('SELECT COUNT(*) FROM support_messages WHERE institution_id=:institution_id AND thread_id=:thread_id');
+        $count->execute(['institution_id'=>$thread['institution_id'],'thread_id'=>$thread['id']]);
+        $threadPayload['metadataOnly']=true;
+        $threadPayload['messageCount']=(int)$count->fetchColumn();
+        return ['thread'=>$threadPayload,'messages'=>[]];
+    }
     $messages=$pdo->prepare("SELECT m.id,m.sender_scope,m.sender_admin_id,m.sender_platform_admin_id,m.body,m.created_at,ta.name tenant_sender_name FROM support_messages m LEFT JOIN admin_users ta ON ta.institution_id=m.institution_id AND ta.id=m.sender_admin_id WHERE m.institution_id=:institution_id AND m.thread_id=:thread_id ORDER BY m.created_at ASC,m.id ASC");$messages->execute(['institution_id'=>$thread['institution_id'],'thread_id'=>$thread['id']]);$items=[];foreach($messages->fetchAll() as $message){$platformSender=$message['sender_scope']==='platform_super_admin';$items[]=['id'=>$message['id'],'senderScope'=>$message['sender_scope'],'senderLabel'=>$platformSender?'Platform Super Admin':($platform?$message['tenant_sender_name']?:'Tenant Admin':'Tenant Admin'),'body'=>$message['body'],'createdAt'=>mysqlIso($message['created_at'])];}
-    return ['thread'=>['id'=>$thread['id'],'institutionId'=>(int)$thread['institution_id'],'institutionName'=>$platform?($thread['display_name']?:$thread['institution_name']):null,'institutionSlug'=>$platform?$thread['slug']:null,'subject'=>$thread['subject'],'status'=>$thread['status'],'createdAt'=>mysqlIso($thread['created_at']),'lastMessageAt'=>mysqlIso($thread['last_message_at']),'resolvedAt'=>mysqlIso($thread['resolved_at']),'canReply'=>$thread['status']==='open'],'messages'=>$items];
+    $threadPayload['metadataOnly']=false;
+    return ['thread'=>$threadPayload,'messages'=>$items];
 }
 function mysqlSupportTenantThreads(string $method): never {
     $session=mysqlSupportTenantSession();
@@ -2842,6 +3041,28 @@ function mysqlSupportPlatformThread(string $method): never {
     if($operation==='reply'){$message=supportText($input['message']??null,'Message',5000);if($thread['status']!=='open')respond(['error'=>'Resolve status must be reopened before replying.'],409);$messageId=bin2hex(random_bytes(16));$pdo->beginTransaction();try{$pdo->prepare("INSERT INTO support_messages (institution_id,id,thread_id,sender_scope,sender_platform_admin_id,body,created_at) VALUES (:institution_id,:id,:thread_id,'platform_super_admin',:sender_platform_admin_id,:body,UTC_TIMESTAMP(6))")->execute(['institution_id'=>$institutionId,'id'=>$messageId,'thread_id'=>$threadId,'sender_platform_admin_id'=>(string)$session['userId'],'body'=>$message]);$pdo->prepare("UPDATE support_threads SET last_message_at=UTC_TIMESTAMP(6),updated_at=UTC_TIMESTAMP(6) WHERE institution_id=:institution_id AND id=:id AND status='open'")->execute(['institution_id'=>$institutionId,'id'=>$threadId]);$metadata=['messageId'=>$messageId,'messageLength'=>textLength($message)];mysqlSupportTenantAudit($pdo,$institutionId,'platform_admin',(string)$session['email'],'platform_support_reply_received',$threadId,$metadata,$correlation);mysqlInsertPlatformAudit($pdo,(string)$session['email'],'platform_support_thread_replied',$institutionId,'support_thread',$threadId,'success',$correlation,$metadata);$pdo->commit();}catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();throw $error;}respond(['messageId'=>$messageId],201);}
     if($operation==='set-status'){$status=(string)($input['status']??'');if(!in_array($status,['open','resolved'],true))respond(['error'=>'Choose open or resolved status.'],422);if($status===$thread['status'])respond(['status'=>$status]);$pdo->beginTransaction();try{$statement=$pdo->prepare("UPDATE support_threads SET status=:status,updated_at=UTC_TIMESTAMP(6),resolved_at=".($status==='resolved'?'UTC_TIMESTAMP(6)':'NULL').",resolved_by_platform_admin_id=".($status==='resolved'?':platform_admin_id':'NULL')." WHERE institution_id=:institution_id AND id=:id");$params=['status'=>$status,'institution_id'=>$institutionId,'id'=>$threadId];if($status==='resolved')$params['platform_admin_id']=(string)$session['userId'];$statement->execute($params);$action=$status==='resolved'?'support_thread_resolved':'support_thread_reopened';$metadata=['beforeStatus'=>$thread['status'],'afterStatus'=>$status];mysqlSupportTenantAudit($pdo,$institutionId,'platform_admin',(string)$session['email'],$action,$threadId,$metadata,$correlation);mysqlInsertPlatformAudit($pdo,(string)$session['email'],'platform_'.$action,$institutionId,'support_thread',$threadId,'success',$correlation,$metadata);$pdo->commit();}catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();throw $error;}respond(['status'=>$status]);}
     respond(['error'=>'Unknown support-thread action.'],422);
+}
+function mysqlPlatformSupportAccess(): never {
+    $session=mysqlFastRequireAdmin();if(($session['scope']??'')!=='platform'||requestHasExplicitInstitutionPath())respond(['error'=>'Resource not found.'],404);
+    $input=body();$operation=(string)($input['operation']??'start');$pdo=mysqlAppPdo();
+    if($operation==='start'){
+        $institutionId=filter_var($input['institutionId']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);if(!$institutionId)respond(['error'=>'Choose a valid institution before starting support access.'],422);
+        $reason=supportText($input['reason']??null,'Support-access reason',1000);if(textLength($reason)<10)respond(['error'=>'Support-access reason must be at least 10 characters.'],422);
+        $minutes=filter_var($input['minutes']??null,FILTER_VALIDATE_INT);if(!in_array($minutes,[5,15,30,60],true))respond(['error'=>'Choose a support-access duration of 5, 15, 30, or 60 minutes.'],422);
+        $empty=[];enforceRateLimit($empty,'platform-support-access-start-'.(string)$session['userId'],10,3600);
+        $institution=$pdo->prepare('SELECT id,name,slug FROM institutions WHERE id=:id AND deleted_at IS NULL LIMIT 1');$institution->execute(['id'=>$institutionId]);$tenant=$institution->fetch();if(!$tenant)respond(['error'=>'The selected institution is no longer available.'],404);
+        $pdo->beginTransaction();try{
+            $previous=$pdo->prepare('SELECT id FROM platform_support_access_sessions WHERE institution_id=:institution_id AND platform_admin_id=:platform_admin_id AND platform_session_token_hash=:token_hash AND ended_at IS NULL FOR UPDATE');$previous->execute(['institution_id'=>$institutionId,'platform_admin_id'=>(string)$session['userId'],'token_hash'=>(string)$session['tokenHash']]);
+            $supersede=$pdo->prepare("UPDATE platform_support_access_sessions SET ended_at=UTC_TIMESTAMP(6),ended_reason='superseded' WHERE id=:id AND ended_at IS NULL");foreach($previous->fetchAll(PDO::FETCH_COLUMN) as $previousId){$supersede->execute(['id'=>$previousId]);if($supersede->rowCount())mysqlInsertPlatformAudit($pdo,(string)$session['email'],'platform_support_access_ended',$institutionId,'support_access',(string)$previousId,'success',(string)($session['correlationId']??''),['reason'=>'superseded']);}
+            $id=bin2hex(random_bytes(16));$insert=$pdo->prepare('INSERT INTO platform_support_access_sessions (id,institution_id,platform_admin_id,platform_session_token_hash,reason,created_at,expires_at) VALUES (:id,:institution_id,:platform_admin_id,:token_hash,:reason,UTC_TIMESTAMP(6),DATE_ADD(UTC_TIMESTAMP(6), INTERVAL :minutes MINUTE))');$insert->bindValue(':id',$id);$insert->bindValue(':institution_id',$institutionId,PDO::PARAM_INT);$insert->bindValue(':platform_admin_id',(string)$session['userId']);$insert->bindValue(':token_hash',(string)$session['tokenHash']);$insert->bindValue(':reason',$reason);$insert->bindValue(':minutes',$minutes,PDO::PARAM_INT);$insert->execute();
+            mysqlInsertPlatformAudit($pdo,(string)$session['email'],'platform_support_access_started',$institutionId,'support_access',$id,'success',(string)($session['correlationId']??''),['durationMinutes'=>$minutes,'reasonLength'=>textLength($reason),'reasonHash'=>hash('sha256',$reason)]);$pdo->commit();
+        }catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();throw $error;}
+        $record=$pdo->prepare('SELECT created_at,expires_at FROM platform_support_access_sessions WHERE id=:id');$record->execute(['id'=>$id]);$row=$record->fetch();respond(['supportAccess'=>['id'=>$id,'institutionId'=>$institutionId,'institutionName'=>(string)$tenant['name'],'institutionSlug'=>(string)$tenant['slug'],'reason'=>$reason,'startedAt'=>mysqlIso($row['created_at']),'expiresAt'=>mysqlIso($row['expires_at'])]],201);
+    }
+    if($operation==='end'){
+        $id=trim((string)($input['supportAccessId']??''));if(!preg_match('/^[a-f0-9]{32}$/',$id))respond(['error'=>'The support-access session identifier is invalid.'],422);$pdo->beginTransaction();try{$lookup=$pdo->prepare('SELECT institution_id FROM platform_support_access_sessions WHERE id=:id AND platform_admin_id=:platform_admin_id AND platform_session_token_hash=:token_hash AND ended_at IS NULL FOR UPDATE');$lookup->execute(['id'=>$id,'platform_admin_id'=>(string)$session['userId'],'token_hash'=>(string)$session['tokenHash']]);$row=$lookup->fetch();if(!$row){$pdo->rollBack();respond(['error'=>'This support-access session is no longer active.'],409);}$end=$pdo->prepare("UPDATE platform_support_access_sessions SET ended_at=UTC_TIMESTAMP(6),ended_reason='manual' WHERE id=:id AND ended_at IS NULL");$end->execute(['id'=>$id]);mysqlInsertPlatformAudit($pdo,(string)$session['email'],'platform_support_access_ended',(int)$row['institution_id'],'support_access',$id,'success',(string)($session['correlationId']??''),['reason'=>'manual']);$pdo->commit();}catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();throw $error;}respond(['ok'=>true]);
+    }
+    respond(['error'=>'Unknown support-access operation.'],422);
 }
 function mysqlFastRoute(string $action, string $method): bool {
     // These requests are safe to process without the compatibility loader.
@@ -2871,6 +3092,7 @@ function mysqlFastRoute(string $action, string $method): bool {
     if ($action === 'support-thread' && in_array($method, ['GET','POST'], true)) { $empty = []; enforceGeneralApiRateLimit($empty); if ($method === 'POST') requireCsrf(); mysqlSupportTenantThread($method); }
     if ($action === 'platform-support-threads' && $method === 'GET') { $empty = []; enforceGeneralApiRateLimit($empty); mysqlSupportPlatformThreads(); }
     if ($action === 'platform-support-thread' && in_array($method, ['GET','POST'], true)) { $empty = []; enforceGeneralApiRateLimit($empty); if ($method === 'POST') requireCsrf(); mysqlSupportPlatformThread($method); }
+    if ($action === 'platform-support-access' && $method === 'POST') { $empty = []; enforceGeneralApiRateLimit($empty); requireCsrf(); mysqlPlatformSupportAccess(); }
     return false;
 }
 if (mysqlStorageEnabled() && mysqlFastRoute($action, $method)) exit;
@@ -3005,16 +3227,27 @@ if ($action === 'emergency-codes' && $method === 'POST') {
 if ($action === 'admin-login' && $method === 'POST') {
     $input = body();
     $rateLimitKey = enforceRateLimit($data, 'admin-login', 10, 900);
-    $bootstrapAccount = bootstrapAdminAccount($data);
-    $adminEmail = $bootstrapAccount['email']; $adminHash = $bootstrapAccount['passwordHash'];
     $email = strtolower(trim((string)($input['email'] ?? ''))); $adminUser = findBy($data['adminUsers'], 'email', $email);
-    $isBootstrap = hash_equals(strtolower($adminEmail), $email) && password_verify((string)($input['password'] ?? ''), $adminHash);
-    $isUser = $adminUser && password_verify((string)($input['password'] ?? ''), (string)$adminUser['passwordHash']);
-    if (!$isBootstrap && !$isUser) {
+    $password = (string)($input['password'] ?? '');
+    $tenantRoute = requestHasExplicitInstitutionPath();
+    /*
+     * Login identity is selected by the public route, never by an ambiguous
+     * email address. A tenant URL authenticates only that tenant's
+     * admin_users record; the platform URL authenticates only the separate
+     * platform identity. This permits a tenant Admin to intentionally share
+     * an email (and even a password) with a Platform Super Admin without a
+     * tenant sign-in silently creating a platform session.
+     */
+    $isUser = $adminUser && password_verify($password, (string)$adminUser['passwordHash']);
+    $bootstrapAccount = $tenantRoute ? null : bootstrapAdminAccount($data);
+    $isBootstrap = $bootstrapAccount
+        && hash_equals(strtolower((string)$bootstrapAccount['email']), $email)
+        && password_verify($password, (string)$bootstrapAccount['passwordHash']);
+    if (($tenantRoute && !$isUser) || (!$tenantRoute && !$isBootstrap)) {
         auditEvent($data, 'system', $email !== '' ? $email : 'unknown', 'admin_login_failed', 'administrator_login', $email !== '' ? $email : 'unknown');
         saveData($data); respond(['error' => 'Invalid admin credentials.'], 401);
     }
-    $user = $isUser ? $adminUser : $bootstrapAccount;
+    $user = $tenantRoute ? $adminUser : $bootstrapAccount;
     if (empty($user['active'])) {
         auditEvent($data, 'system', $email, 'admin_login_failed', 'administrator_login', $email, ['reason' => 'account_inactive']);
         saveData($data); respond(['error' => 'Invalid admin credentials.'], 401);
@@ -3044,10 +3277,12 @@ if ($action === 'admin-login' && $method === 'POST') {
         respond(['expiresAt' => $expiresAt, 'user' => ['id' => $user['id'], 'email' => $user['email'], 'name' => $user['name'], 'roleId' => $role['id'], 'role' => $role['name'], 'permissions' => $role['permissions'], 'mustChangePassword' => !empty($user['mustChangePassword']), 'scope' => 'platform']]);
     }
     clearRateLimit($data, $rateLimitKey);
+    if (mysqlStorageEnabled()) mysqlCreateTenantSession($user, $role, tokenHash($token), $correlationId, date('c'), $expiresAt);
     $data['adminUserActivity'][$user['id']] = ['lastLoginAt' => date('c')];
     $data['adminSessions'][] = ['tokenHash' => tokenHash($token), 'correlationId' => $correlationId, 'expiresAt' => $expiresAt, 'createdAt' => date('c'), 'lastSeenAt' => date('c'), 'userId' => $user['id'], 'email' => $user['email'], 'name' => $user['name'], 'roleId' => $role['id'], 'permissions' => $role['permissions']];
     auditEvent($data, 'admin', $user['email'], 'admin_login', 'admin_session', tokenHash($token), ['email' => $user['email'], 'role' => $role['name'], 'twoFactor' => false, 'correlationId' => $correlationId]);
-    saveData($data); setSessionCookie('CBT_ADMIN_SESSION', $token, strtotime($expiresAt));
+    saveData($data); setTenantAdminSessionCookie($token, strtotime($expiresAt));
+    authTrace('tenant_login_response', ['action' => $action, 'institutionId' => mysqlCurrentInstitutionId(), 'sessionHashPrefix' => substr(tokenHash($token), 0, 16), 'setCookieHeaders' => authTraceSetCookieHeaders()]);
     respond(['expiresAt' => $expiresAt, 'user' => ['id' => $user['id'], 'email' => $user['email'], 'name' => $user['name'], 'roleId' => $role['id'], 'role' => $role['name'], 'permissions' => $role['permissions'], 'mustChangePassword' => !empty($user['mustChangePassword'])]]);
 }
 if ($action === 'admin-login-2fa' && $method === 'POST') {
@@ -3097,27 +3332,31 @@ if ($action === 'admin-login-2fa' && $method === 'POST') {
     $token = secretToken(); $expiresAt = ADMIN_SESSION_EXPIRES_AT; $correlationId = 'admin-' . id();
     clearRateLimit($data, $rateLimitKey); if (!empty($challenge['passwordRateLimitKey'])) clearRateLimit($data, (string)$challenge['passwordRateLimitKey']);
     $data['admin2faChallenges'] = array_values(array_filter($data['admin2faChallenges'], fn($item) => ($item['tokenHash'] ?? '') !== $challenge['tokenHash']));
+    if (mysqlStorageEnabled()) mysqlCreateTenantSession($user, $role, tokenHash($token), $correlationId, date('c'), $expiresAt);
     $data['adminUserActivity'][$user['id']] = ['lastLoginAt' => date('c')];
     $data['adminSessions'][] = ['tokenHash' => tokenHash($token), 'correlationId' => $correlationId, 'expiresAt' => $expiresAt, 'createdAt' => date('c'), 'lastSeenAt' => date('c'), 'userId' => $user['id'], 'email' => $user['email'], 'name' => $user['name'], 'roleId' => $role['id'], 'permissions' => $role['permissions']];
     auditEvent($data, 'admin', $user['email'], 'admin_login', 'admin_session', tokenHash($token), ['email' => $user['email'], 'role' => $role['name'], 'twoFactor' => true, 'correlationId' => $correlationId]);
-    saveData($data); clearSessionCookie('CBT_ADMIN_2FA_CHALLENGE'); setSessionCookie('CBT_ADMIN_SESSION', $token, strtotime($expiresAt));
+    saveData($data); clearSessionCookie('CBT_ADMIN_2FA_CHALLENGE'); setTenantAdminSessionCookie($token, strtotime($expiresAt));
+    authTrace('tenant_login_response', ['action' => $action, 'institutionId' => mysqlCurrentInstitutionId(), 'sessionHashPrefix' => substr(tokenHash($token), 0, 16), 'setCookieHeaders' => authTraceSetCookieHeaders()]);
     respond(['expiresAt' => $expiresAt, 'user' => ['id' => $user['id'], 'email' => $user['email'], 'name' => $user['name'], 'roleId' => $role['id'], 'role' => $role['name'], 'permissions' => $role['permissions'], 'mustChangePassword' => !empty($user['mustChangePassword'])]]);
 }
 if ($action === 'admin-logout' && $method === 'POST') {
     $record = auth(true); $tokenHash = (string)$record['tokenHash'];
     if (($record['scope'] ?? '') === 'platform') {
+        mysqlClosePlatformSupportAccessForSession($record);
         mysqlDeletePlatformSession($tokenHash);
         mysqlPlatformAudit((string)$record['email'], 'platform_admin_logout', null, 'platform_admin_session', $tokenHash, 'success', (string)($record['correlationId'] ?? ''));
         clearSessionCookie('CBT_ADMIN_SESSION'); respond(['ok' => true]);
     }
     $data['adminSessions'] = array_values(array_filter($data['adminSessions'], fn($item) => $item['tokenHash'] !== $tokenHash));
+    if (mysqlStorageEnabled()) mysqlDeleteTenantSession($tokenHash);
     auditEvent($data, 'admin', (string)($record['email'] ?? (getenv('CBT_ADMIN_EMAIL') ?: DEV_ADMIN_EMAIL)), 'admin_logout', 'admin_session', $tokenHash);
     saveData($data); clearSessionCookie('CBT_ADMIN_SESSION'); respond(['ok' => true]);
 }
 if ($action === 'admin-account' && $method === 'GET') {
     $session = auth(true); $account = currentAdminAccount($data, $session);
     if (!$account) respond(['error' => 'Administrator account was not found.'], 404);
-    respond(['account' => publicAccount($account, $data)]);
+    respond(['account' => publicAccount($account, $data), 'supportAccess' => mysqlActivePlatformSupportAccess($session)]);
 }
 if ($action === 'admin-account' && $method === 'PUT') {
     $session = auth(true); $account = currentAdminAccount($data, $session);
@@ -3341,6 +3580,11 @@ if ($action === 'admin-users' && $method === 'POST') {
 }
 if ($action === 'admin-users' && in_array($method, ['PUT', 'DELETE'], true)) {
     auth(true); $userId = (string)($_GET['id'] ?? ''); $user = findBy($data['adminUsers'], 'id', $userId); if (!$user) respond(['error' => 'Administrator not found.'], 404);
+    // A tenant Superadmin is the institution's final administrative authority.
+    // It may manage other administrator accounts, but its own directory record
+    // is immutable from this Users workspace. Profile/password changes remain
+    // available through the authenticated Account workspace instead.
+    if (($user['roleId'] ?? '') === 'superadmin') respond(['error' => 'This institution Superadmin account is protected and cannot be changed, disabled, or deleted from the Users workspace. Use Account settings to manage its own profile.'], 403);
     if ($method === 'DELETE') {
         if (($_GET['permanently'] ?? '') === 'true') {
             $role = findBy($data['roles'], 'id', (string)($user['roleId'] ?? ''));
@@ -3832,14 +4076,18 @@ if ($action === 'pdf-import-jobs' && $method === 'POST') {
     else { enforceRateLimit($data, 'gemini-pdf-parse-' . adminActorId(), 1, 15); enforceSystemRateLimit($data, 'gemini-pdf-parse-daily', 50, 86400); }
     $courseId = trim((string)($_POST['courseId'] ?? '')); $course = findBy($data['courses'], 'id', $courseId);
     if (!$course) respond(['error' => 'Choose a valid course Question Bank before importing a PDF.'], 422);
-    $source = queuePdfImportSource($provider); $pdo = mysqlAppPdo();
+    // Validate before admission, but do not move a file to persistent storage
+    // until the tenant and global capacity reservation has been acquired.
+    $limits = pdfQueueLimits($provider); $upload = uploadedPdfQuestionImport((int)$limits['bytes'], (string)$limits['label']); $source = null; $pdo = mysqlAppPdo(); $admissionHeld = false;
     try {
-        $pdo->beginTransaction(); mysqlRegisterInstitutionAsset($pdo, mysqlCurrentInstitutionId(), 'pdf_import_source', $source['sourceKey'], (string)($session['email'] ?? ''), ['sourceFilename' => $source['filename'], 'provider' => $provider, 'temporary' => true]);
+        acquirePdfImportQueueAdmission($pdo, mysqlCurrentInstitutionId()); $admissionHeld = true;
+        $pdo->beginTransaction(); $source = queuePdfImportSource($upload); mysqlRegisterInstitutionAsset($pdo, mysqlCurrentInstitutionId(), 'pdf_import_source', $source['sourceKey'], (string)($session['email'] ?? ''), ['sourceFilename' => $source['filename'], 'provider' => $provider, 'temporary' => true]);
         $insert = $pdo->prepare("INSERT INTO pdf_import_jobs (institution_id,id,course_id,requested_by_admin_id,requested_by_platform_admin_id,requested_by_email,requested_by_scope,provider,status,source_key,source_filename,source_sha256,source_size_bytes,available_at,created_at,updated_at) VALUES (:institution_id,:id,:course_id,:admin_id,:platform_admin_id,:email,:requester_scope,:provider,'queued',:source_key,:source_filename,:source_sha256,:source_size_bytes,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))");
         $insert->execute(['institution_id' => mysqlCurrentInstitutionId(), 'id' => $source['id'], 'course_id' => $courseId, 'admin_id' => $requester['scope'] === 'institution' ? $requester['id'] : null, 'platform_admin_id' => $requester['scope'] === 'platform' ? $requester['id'] : null, 'email' => (string)($session['email'] ?? ''), 'requester_scope' => $requester['scope'], 'provider' => $provider, 'source_key' => $source['sourceKey'], 'source_filename' => $source['filename'], 'source_sha256' => $source['checksum'], 'source_size_bytes' => $source['size']]);
         mysqlFastAudit($pdo, 'admin', (string)($session['email'] ?? adminActorId()), $provider . '_pdf_import_queued', 'course', $courseId, ['course' => $course['code'] ?? '', 'jobId' => $source['id'], 'filename' => $source['filename'], 'provider' => $provider, 'status' => 'queued', 'requesterScope' => $requester['scope']]);
         $pdo->commit();
-    } catch (Throwable $error) { if ($pdo->inTransaction()) $pdo->rollBack(); $path = mysqlStorageAbsolutePath($source['sourceKey']); if ($path && is_file($path)) @unlink($path); throw $error; }
+    } catch (Throwable $error) { if ($pdo->inTransaction()) $pdo->rollBack(); if (is_array($source)) { $path = mysqlStorageAbsolutePath($source['sourceKey']); if ($path && is_file($path)) @unlink($path); } throw $error; }
+    finally { if ($admissionHeld) releasePdfImportQueueAdmission($pdo); }
     respond(['job' => ['id' => $source['id'], 'status' => 'queued', 'filename' => $source['filename'], 'provider' => $provider]], 202);
 }
 if ($action === 'pdf-import-jobs' && $method === 'GET') {

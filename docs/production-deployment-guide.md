@@ -140,6 +140,29 @@ After deployment: `systemctl daemon-reload`, `systemctl enable --now cbt-pdf-imp
 
 Keep provider keys only in `/etc/cbt/cbt.env` (and expose that same protected file to the current release through the `.env` symlink), readable by `cbtapp`. Alert on queued-job age, retries, `failed` jobs, and provider rejection/rate-limit errors. Do not bypass the queue for an urgent import: its draft-only review, provider limits, cooldowns, duplicate checks, and audit trail are mandatory controls.
 
+### Storage retention worker
+
+The PDF worker marks completed, cancelled, and expired-review source files as unreferenced; it does **not** delete them itself. Schedule the lifecycle worker with `--apply` so manifest-authorized expired files are actually removed. For Linux, install a second one-shot service/timer (every 15 minutes is sufficient):
+
+```ini
+# /etc/systemd/system/cbt-storage-lifecycle.service
+[Service]
+Type=oneshot
+User=cbtapp
+Group=cbtapp
+WorkingDirectory=/srv/cbt/current
+EnvironmentFile=/etc/cbt/cbt.env
+ExecStart=/usr/bin/php /srv/cbt/current/scripts/run_storage_lifecycle.php --apply
+```
+
+Use a matching persistent timer with `OnUnitActiveSec=15min`; enable it with `systemctl enable --now cbt-storage-lifecycle.timer`, then verify both its last successful run and that expired `pdf_import_source` manifest records become `deleted`.
+
+On supported Windows/XAMPP deployments, create the equivalent Task Scheduler task to run `C:\xampp\php\php-win.exe C:\xampp\htdocs\BEREVION\scripts\run_storage_lifecycle.php --apply` every 15 minutes, and verify its Last Run Result after deployment. The CLI script is dry-run by default: `--apply` is intentional and must remain scheduler-only.
+
+### Accepted PDF parser residual risk
+
+PDFs are signature- and MIME-checked, size/page-limited, stored outside public routes, and parsed only by the separate CLI worker. The current PHP parser is nevertheless in-process: it has no antivirus scan or OS/container sandbox. A malicious or parser-exploit PDF could still target that worker. Production deployments that accept untrusted uploads should isolate the worker in a low-privilege container/VM with CPU, memory, and filesystem limits, and place malware scanning at the upload boundary. These controls reduce exposure; they do not make document parsing risk-free.
+
 ## 6. Private object storage and backup lifecycle
 
 Move logos, private PDF sources, routine backups, archive files, and restore safety backups to a private S3-compatible/object-storage bucket when institutions and data volume grow. Keep the existing `institution_assets` manifest as the authority for automated deletion; never delete by bucket prefix/directory scan alone.

@@ -460,6 +460,8 @@ CREATE TABLE IF NOT EXISTS pdf_import_jobs (
   KEY ix_pdf_jobs_admin (institution_id,requested_by_admin_id,status,created_at),
   KEY ix_pdf_jobs_platform_admin (requested_by_platform_admin_id,status,created_at),
   KEY ix_pdf_jobs_course (institution_id,course_id,status,created_at),
+  KEY ix_pdf_jobs_capacity (institution_id,status,created_at),
+  KEY ix_pdf_jobs_created (created_at),
   CONSTRAINT fk_pdf_jobs_institution FOREIGN KEY (institution_id) REFERENCES institutions (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT fk_pdf_jobs_course FOREIGN KEY (institution_id,course_id) REFERENCES courses (institution_id,id) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT fk_pdf_jobs_admin FOREIGN KEY (institution_id,requested_by_admin_id) REFERENCES admin_users (institution_id,id) ON DELETE RESTRICT ON UPDATE RESTRICT
@@ -492,6 +494,27 @@ CREATE TABLE IF NOT EXISTS algebra_requests (
   CONSTRAINT fk_algebra_requests_admin FOREIGN KEY (institution_id,requested_by_admin_id) REFERENCES admin_users (institution_id,id) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT fk_algebra_requests_platform_admin FOREIGN KEY (requested_by_platform_admin_id) REFERENCES platform_admin_users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT chk_algebra_requests_one_actor CHECK ((requested_by_admin_id IS NOT NULL AND requested_by_platform_admin_id IS NULL) OR (requested_by_admin_id IS NULL AND requested_by_platform_admin_id IS NOT NULL))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- A Platform Super Admin must deliberately open a short-lived, tenant-specific
+-- support session before using any tenant-scoped administrative capability.
+-- The session is bound to the current platform login token so it cannot be
+-- replayed from a different browser session.
+CREATE TABLE IF NOT EXISTS platform_support_access_sessions (
+  id CHAR(32) NOT NULL,
+  institution_id INT UNSIGNED NOT NULL,
+  platform_admin_id VARCHAR(128) NOT NULL,
+  platform_session_token_hash CHAR(64) NOT NULL,
+  reason VARCHAR(1000) NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  expires_at DATETIME(6) NOT NULL,
+  ended_at DATETIME(6) NULL,
+  ended_reason ENUM('manual','superseded','expired','platform_logout') NULL,
+  PRIMARY KEY (id),
+  KEY ix_support_access_active (institution_id,platform_admin_id,platform_session_token_hash,ended_at,expires_at),
+  KEY ix_support_access_expiry (expires_at,ended_at),
+  CONSTRAINT fk_support_access_institution FOREIGN KEY (institution_id) REFERENCES institutions (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT fk_support_access_platform_admin FOREIGN KEY (platform_admin_id) REFERENCES platform_admin_users (id) ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Support messaging is intentionally tenant-aware.  Platform visibility is

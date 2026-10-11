@@ -184,6 +184,16 @@ function mysqlUpdateTenantSession(string $tokenHash, string $lastSeenAt, string 
     $statement = mysqlAppPdo()->prepare('UPDATE admin_sessions SET last_seen_at = :last_seen_at, expires_at = :expires_at WHERE institution_id = :institution_id AND token_hash = :token_hash');
     $statement->execute(['institution_id' => mysqlCurrentInstitutionId(), 'token_hash' => $tokenHash, 'last_seen_at' => (new DateTimeImmutable($lastSeenAt))->format('Y-m-d H:i:s.u'), 'expires_at' => (new DateTimeImmutable($expiresAt))->format('Y-m-d H:i:s.u')]);
 }
+/** Persist tenant authentication before returning a successful login response. */
+function mysqlCreateTenantSession(array $account, array $role, string $tokenHash, string $correlationId, string $createdAt, string $expiresAt): void {
+    $statement = mysqlAppPdo()->prepare('INSERT INTO admin_sessions (institution_id,token_hash,user_id,email,name,role_id,permissions_json,correlation_id,created_at,last_seen_at,expires_at) VALUES (:institution_id,:token_hash,:user_id,:email,:name,:role_id,:permissions_json,:correlation_id,:created_at,:last_seen_at,:expires_at)');
+    $time = (new DateTimeImmutable($createdAt))->format('Y-m-d H:i:s.u');
+    $statement->execute(['institution_id' => mysqlCurrentInstitutionId(), 'token_hash' => $tokenHash, 'user_id' => (string)$account['id'], 'email' => (string)$account['email'], 'name' => (string)$account['name'], 'role_id' => (string)$role['id'], 'permissions_json' => json_encode(array_values((array)($role['permissions'] ?? [])), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), 'correlation_id' => $correlationId, 'created_at' => $time, 'last_seen_at' => $time, 'expires_at' => (new DateTimeImmutable($expiresAt))->format('Y-m-d H:i:s.u')]);
+}
+function mysqlDeleteTenantSession(string $tokenHash): void {
+    $statement = mysqlAppPdo()->prepare('DELETE FROM admin_sessions WHERE institution_id=:institution_id AND token_hash=:token_hash');
+    $statement->execute(['institution_id' => mysqlCurrentInstitutionId(), 'token_hash' => $tokenHash]);
+}
 function mysqlRetryableTransactionFailure(Throwable $error): bool {
     $code = (string)$error->getCode();
     $message = strtolower($error->getMessage());

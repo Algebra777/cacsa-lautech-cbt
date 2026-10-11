@@ -67,20 +67,18 @@ function mockRequest(string $action, string $token, string $csrf, string $slug, 
 
 function cleanupMockTenant(PDO $pdo, int $id, string $slug, string $root): void {
     if ($id < 1) return;
-    $dir = $root . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . 'backups' . DIRECTORY_SEPARATOR . 'institution-' . $id;
-    if (!is_dir($dir)) mkdir($dir, 0700, true);
-    file_put_contents($dir . DIRECTORY_SEPARATOR . 'algebra-stage2-mock-safety-' . gmdate('Ymd-His') . '.json', json_encode([
+    $dir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'berevion-algebra-stage2-mock-backups';
+    if (!is_dir($dir) && !mkdir($dir, 0700, true) && !is_dir($dir)) throw new RuntimeException('Could not create the disposable Algebra test-backup directory.');
+    if (file_put_contents($dir . DIRECTORY_SEPARATOR . 'algebra-stage2-mock-safety-' . gmdate('Ymd-His') . '.json', json_encode([
         'kind' => 'algebra-stage2-mock-cleanup', 'institutionId' => $id, 'slug' => $slug,
         'reason' => 'Mocked Algebra Stage 2 verification', 'createdAt' => gmdate('c')
-    ], JSON_PRETTY_PRINT), LOCK_EX);
+    ], JSON_PRETTY_PRINT), LOCK_EX) === false) throw new RuntimeException('Could not write the disposable Algebra test-backup.');
     $pdo->beginTransaction();
     try {
         foreach (['rate_limit_records','algebra_requests','audit_events','calculated_result_items','calculated_results','question_options','questions','course_components','courses','students','academic_semesters','academic_sessions','admin_sessions','admin_users','role_permissions','roles','institution_branding'] as $table) $pdo->prepare("DELETE FROM {$table} WHERE institution_id=?")->execute([$id]);
         $pdo->prepare('DELETE FROM algebra_provider_budget WHERE budget_key IN (?,?)')->execute(['tenant:' . $id, 'global']);
         $pdo->prepare('DELETE FROM institutions WHERE id=? AND slug=?')->execute([$id, $slug]);
         $pdo->commit();
-        $pdo->prepare('INSERT INTO institutions (name,slug,active,created_at) VALUES (?,?,1,UTC_TIMESTAMP(6))')->execute(['Algebra Mock Test B', $slug . '-b']);
-        $tenantIdB = (int)$pdo->lastInsertId();
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $error;
@@ -103,6 +101,8 @@ try {
     $pdo->beginTransaction();
     $pdo->prepare('INSERT INTO institutions (name,slug,active,created_at) VALUES (?,?,1,UTC_TIMESTAMP(6))')->execute(['Algebra Mock Test', $slug]);
     $tenantId = (int)$pdo->lastInsertId();
+    $pdo->prepare('INSERT INTO institutions (name,slug,active,created_at) VALUES (?,?,1,UTC_TIMESTAMP(6))')->execute(['Algebra Mock Test B', $slug . '-b']);
+    $tenantIdB = (int)$pdo->lastInsertId();
     $pdo->prepare("INSERT INTO institution_branding (institution_id,display_name,portal_title,logo_path,favicon_path,accent_source_color,primary_color,accent_color,nav_label,assessment_label,footer_primary,footer_secondary,footer_legal,result_sheet_title,newsletter_sender_name,support_email,updated_at) VALUES (?,'Algebra Mock Test','Algebra Mock Test','CACSA%20Logo.jpeg','favicon.php','#16774d','#16774d','#105839','Algebra Mock Test','Assessment centre','Mock','Mock','© test','Mock','Mock','mock@example.invalid',UTC_TIMESTAMP(6))")->execute([$tenantId]);
     $pdo->prepare("INSERT INTO roles (institution_id,id,name,description,max_users,system_locked) VALUES (?,'admin','Admin','Mock administrator',2,1)")->execute([$tenantId]);
     foreach (['questions','results','exams','audit','newsletter'] as $permission) $pdo->prepare("INSERT INTO role_permissions (institution_id,role_id,permission) VALUES (?,'admin',?)")->execute([$tenantId,$permission]);
@@ -115,8 +115,9 @@ try {
     $pdo->prepare("INSERT INTO calculated_results (institution_id,id,student_id,session_id,semester_id,source_hash,semester_gpa,cgpa,calculated_at) VALUES (?,'cr1','student1','s1','sem1',REPEAT('a',64),4,4,UTC_TIMESTAMP(6))")->execute([$tenantId]);
     $pdo->commit();
 
+    $validCourseSetup = json_encode(['summary'=>'Use a draft form only.','fields'=>['code'=>'ALG 201','title'=>'Introductory Algebra','category'=>'Mathematics','courseUnit'=>3,'sessionLabel'=>'2026/2027','semesterLabel'=>'Harmattan Semester','description'=>'Foundational algebra.','testMaxMark'=>30,'testPassThreshold'=>15,'testDuration'=>30,'testQuestionCount'=>20,'examMaxMark'=>70,'examPassThreshold'=>35,'examDuration'=>90,'examQuestionCount'=>50],'notes'=>[]], JSON_UNESCAPED_SLASHES);
     $fixtures = [
-        ['setup_suggestion','{"summary":"Use a draft form only.","fields":{"code":"ALG 201"},"notes":[],"publish":true,"status":"published","institution_id":1}',200],
+        ['setup_suggestion',$validCourseSetup,200],
         ['audit_digest','{"summary":"Review activity cautiously.","highlights":[{"title":"Review recommended","detail":"Aggregate activity only."}],"caveats":[],"userId":"student1"}',200],
         ['communication_draft','{"subject":"Assessment reminder","content":"Review this draft before sending.","reviewNotes":[],"send":true,"userId":"student1"}',200],
         ['result_report','{"heading":"Result summary","summary":"Review the calculated result.","highlights":[],"reviewNote":"Draft only.","studentId":"evil","institution_id":999}',200],
@@ -134,6 +135,24 @@ try {
         $results[$capability . '_success'] = $result['status'] === 0 && !isset($result['body']['error']);
         if (!empty($result['body']['requestId'])) $successRequestIds[$capability] = (string)$result['body']['requestId'];
         if (!$results[$capability . '_success']) $results[$capability . '_success_detail'] = ['body'=>$result['body'],'stderr'=>$result['stderr']];
+        resetMockRateLimits($pdo, $tenantId);
+    }
+    $validComponentSetup = ['summary'=>'Keep this component in draft.','fields'=>['maxMark'=>30,'passThreshold'=>15,'duration'=>30,'questionCount'=>20,'status'=>'draft'],'notes'=>[]];
+    $validGradingSetup = ['summary'=>'Review the proposed scale.','fields'=>['bands'=>[['minScore'=>70,'maxScore'=>100,'grade'=>'A','gradePoint'=>5],['minScore'=>0,'maxScore'=>69.99,'grade'=>'F','gradePoint'=>0]]],'notes'=>[]];
+    $unknownRoot = json_decode($validCourseSetup, true); $unknownRoot['publish'] = true;
+    $unknownCourseField = json_decode($validCourseSetup, true); $unknownCourseField['fields']['status'] = 'published';
+    $unknownBandField = $validGradingSetup; $unknownBandField['fields']['bands'][0]['institutionId'] = 999;
+    $setupSchemaCases = [
+        ['component_exact_schema','component',$validComponentSetup,true],
+        ['grading_scale_exact_schema','grading_scale',$validGradingSetup,true],
+        ['setup_unknown_top_level_rejected','course',$unknownRoot,false],
+        ['setup_unknown_course_field_rejected','course',$unknownCourseField,false],
+        ['setup_unknown_grading_band_field_rejected','grading_scale',$unknownBandField,false],
+    ];
+    foreach ($setupSchemaCases as [$name,$formType,$response,$accepted]) {
+        $probe = mockRequest('algebra-setup-suggestion', $token, $csrf, $slug, 'success', json_encode($response, JSON_UNESCAPED_SLASHES), ['formType'=>$formType,'brief'=>'Test exact setup schema.']);
+        $results[$name] = $accepted ? ($probe['status'] === 0 && !isset($probe['body']['error'])) : ($probe['status'] === 0 && isset($probe['body']['error']));
+        if (!$results[$name]) $results[$name . '_detail'] = ['body'=>$probe['body'],'stderr'=>$probe['stderr']];
         resetMockRateLimits($pdo, $tenantId);
     }
     foreach (['setup_suggestion','audit_digest','communication_draft','result_report'] as $capability) {
@@ -189,6 +208,7 @@ try {
     $timeoutPayload = ['purpose'=>'test','audience'=>'test','keyPoints'=>'test'];
     $timeout = mockRequest('algebra-communication-draft', $token, $csrf, $slug, 'timeout', '', $timeoutPayload);
     $results['communication_draft_timeout'] = $timeout['status'] === 0 && isset($timeout['body']['error']);
+    $results['communication_draft_timeout_client_error_sanitized'] = $results['communication_draft_timeout'] && !preg_match('/gemini|api[ _-]?key|curl|\.env/i', (string)($timeout['body']['error'] ?? ''));
     resetMockRateLimits($pdo, $tenantId);
     foreach (['question_draft'=>'algebra-question-draft','performance_insight'=>'algebra-performance-insight','setup_suggestion'=>'algebra-setup-suggestion','audit_digest'=>'algebra-audit-digest','result_report'=>'algebra-result-report'] as $capability => $action) {
         $payload = match ($capability) {
@@ -253,7 +273,7 @@ try {
 } finally {
     if ($pdo->inTransaction()) $pdo->rollBack();
     cleanupMockTenant($pdo, $tenantId, $slug, $root);
-    if ($tenantIdB > 0) $pdo->prepare('DELETE FROM institutions WHERE id=? AND slug=?')->execute([$tenantIdB, $slug . '-b']);
+    if ($tenantIdB > 0) { $pdo->prepare('DELETE FROM algebra_provider_budget WHERE budget_key=?')->execute(['tenant:' . $tenantIdB]); $pdo->prepare('DELETE FROM institutions WHERE id=? AND slug=?')->execute([$tenantIdB, $slug . '-b']); }
     foreach ($maintenanceBackups as $backup => $maintenanceFile) if (is_file($backup)) rename($backup, $maintenanceFile);
     if (is_file($captureFile)) unlink($captureFile);
 }

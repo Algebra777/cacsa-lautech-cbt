@@ -1,11 +1,6 @@
 Options -MultiViews
 RewriteEngine On
 
-# The active platform root is BEREVION. This retired, editor-locked source
-# folder remains web-inert during the rename hand-off: old encoded-space URLs
-# are redirected instead of ever serving a second copy of the application.
-RewriteRule ^(.*)$ /BEREVION/$1 [R=308,L,NE]
-
 <IfModule mod_php.c>
     php_value upload_max_filesize 12M
     php_value post_max_size 13M
@@ -19,6 +14,15 @@ RewriteRule ^(.*)$ /BEREVION/$1 [R=308,L,NE]
     Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     Header always set Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self'"
     Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" "expr=%{HTTPS} == 'on'"
+</IfModule>
+
+# The SPA entry document names the cache-versioned JavaScript and CSS bundles.
+# It must be revalidated so a newly deployed navigation feature is not hidden
+# behind a browser's previously cached index.html.
+<IfModule mod_headers.c>
+    <FilesMatch "^index\.html$">
+        Header always set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
 </IfModule>
 
 # Clean client-side routes. Existing files (including api.php and assets) continue

@@ -291,7 +291,7 @@ function query(action, params = {}) {
 async function api(action, options = {}, params = {}) {
   const adminAuthVersion = state.adminAuthVersion;
   const {admin: requireAdmin = false, ...fetchOptions} = options;
-  const adminAction = requireAdmin || ['admin-logout', 'admin-account', 'platform-institutions', 'support-threads', 'support-thread', 'platform-support-threads', 'platform-support-thread', 'students', 'students-bulk', 'exam-password', 'questions', 'questions-bulk', 'questions-bulk-delete', 'questions-publish-target', 'questions-unpublish-target', 'questions-deduplicate', 'strict-question-parse', 'strict-question-import', 'pdf-question-parse', 'pdf-question-import', 'openrouter-pdf-question-parse', 'openrouter-pdf-question-import', 'pdf-import-jobs', 'pdf-import-job-import', 'algebra-question-draft', 'algebra-question-import', 'algebra-performance-insight', 'algebra-setup-suggestion', 'algebra-audit-digest', 'algebra-anomaly-flags', 'algebra-communication-draft', 'algebra-result-report', 'results', 'result-review', 'calculate-student-result', 'reset-student-result', 'component-submission-delete', 'settings', 'student-results', 'dashboard', 'dashboard-outcomes', 'audit-monitor', 'audit-events', 'audit-archives', 'exam-session-unlock', 'roles', 'admin-users', 'admin-approvals', 'newsletter-subscribers', 'newsletters', 'courses', 'course-components', 'academic-sessions', 'semesters', 'backups', 'emergency-codes'].includes(action) || (action === 'exams' && options.method && options.method !== 'GET');
+  const adminAction = requireAdmin || ['admin-logout', 'admin-account', 'platform-institutions', 'platform-support-access', 'support-threads', 'support-thread', 'platform-support-threads', 'platform-support-thread', 'students', 'students-bulk', 'exam-password', 'questions', 'questions-bulk', 'questions-bulk-delete', 'questions-publish-target', 'questions-unpublish-target', 'questions-deduplicate', 'strict-question-parse', 'strict-question-import', 'pdf-question-parse', 'pdf-question-import', 'openrouter-pdf-question-parse', 'openrouter-pdf-question-import', 'pdf-import-jobs', 'pdf-import-job-import', 'algebra-question-draft', 'algebra-question-import', 'algebra-performance-insight', 'algebra-setup-suggestion', 'algebra-audit-digest', 'algebra-anomaly-flags', 'algebra-communication-draft', 'algebra-result-report', 'results', 'result-review', 'calculate-student-result', 'reset-student-result', 'component-submission-delete', 'settings', 'student-results', 'dashboard', 'dashboard-outcomes', 'audit-monitor', 'audit-events', 'audit-archives', 'exam-session-unlock', 'roles', 'admin-users', 'admin-approvals', 'newsletter-subscribers', 'newsletters', 'courses', 'course-components', 'academic-sessions', 'semesters', 'backups', 'emergency-codes'].includes(action) || (action === 'exams' && options.method && options.method !== 'GET');
   const isAdminAction = adminAction || action === 'dashboard-portal-mode';
   const mutating = ['POST', 'PUT', 'DELETE'].includes(String(options.method || 'GET').toUpperCase());
   if (mutating && action !== 'auth-csrf') await refreshCsrfToken();
@@ -603,7 +603,16 @@ async function render() {
     if (isAdmin && isInstitutionAdmin()) scheduleApprovalBadgePoll();
   } catch (error) {
     if (serial !== state.loadSerial) return;
-    if (isAdmin && error.status === 401) return;
+    // A direct /admin or /i/{tenant}/admin visit has no client-side session
+    // yet. The API correctly rejects its account lookup, but the SPA must
+    // then take the visitor to the public sign-in route instead of leaving
+    // the protected workspace on its loading state. This also covers a
+    // session that was cleared in another browser or device.
+    if (isAdmin && error.status === 401) {
+      clearAdmin();
+      navigate('admin/login');
+      return;
+    }
     if (error.maintenance) { app.innerHTML = maintenancePage(); return; }
     if (error.institutionSuspended) { app.innerHTML = institutionSuspendedPage(); return; }
     app.innerHTML = `${isAdmin ? '' : topbar()}<main class="center-page"><section class="auth-card"><h1>Unable to load</h1><p>${esc(error.message)}</p><button class="primary-btn" data-action="retry">Try again</button></section></main>`;
@@ -707,6 +716,7 @@ async function loadAdmin(route) {
     state.adminAuthenticated = true;
     state.adminAuthVersion += 1;
     state.adminUser = {...state.adminUser, id: accountSnapshot.account.id, name: accountSnapshot.account.name, email: accountSnapshot.account.email, roleId: accountSnapshot.account.roleId, role: accountSnapshot.account.roleName || state.adminUser?.role, scope: accountSnapshot.account.scope || state.adminUser?.scope || '', permissions: accountSnapshot.account.permissions || []};
+    state.supportAccess = accountSnapshot.supportAccess || null;
     saveStored('algeAdminUser', state.adminUser);
   }
   // A platform Super Admin may deliberately enter a tenant route for settings
@@ -1056,8 +1066,13 @@ function adminShell(content) {
   const pageTitle = pageTitles[active] || 'Admin workspace';
   return `<main class="admin-shell ${state.sidebarOpen ? '' : 'sidebar-collapsed'}"><aside class="admin-sidebar">${brand()}<nav class="admin-nav" aria-label="Admin workspace">${navigation}</nav><div class="admin-profile"><span class="avatar">${esc(candidateInitials(name))}</span><span><strong>${esc(name)}</strong><small>${esc(role)}</small></span></div></aside><header class="admin-topbar"><button class="sidebar-toggle" data-action="toggle-sidebar" aria-label="${state.sidebarOpen ? 'Collapse' : 'Expand'} sidebar" aria-expanded="${state.sidebarOpen}">☰</button><div class="admin-topbar-title"><span aria-hidden="true">⌂</span><strong>${esc(pageTitle)}</strong></div><div class="admin-topbar-actions">${themeToggle()}<div class="account-menu-wrap"><button class="account-menu-toggle" data-action="toggle-account-menu" aria-expanded="false"><span class="avatar">${esc(candidateInitials(name))}</span><span><strong>${esc(name)}</strong><small>${esc(role)}</small></span><b aria-hidden="true">⌄</b></button><div class="account-menu" hidden><div class="account-menu-identity"><strong>${esc(name)}</strong><span>${esc(state.adminUser?.email || '')}</span></div><button data-action="account-settings">Account Settings</button>${systemSettings}<hr><button class="account-logout" data-action="admin-logout">Logout</button></div></div></div></header><section class="admin-content">${content}</section></main>`;
 }
+function activeSupportAccessBanner() {
+  const access = state.supportAccess;
+  if (!isPlatformSuperAdmin() || !TENANT_SLUG || !access) return '';
+  return `<section class="panel institution-settings-scope"><div><span class="section-kicker">Time-boxed support access</span><h2>Tenant investigation access is active</h2><p class="table-muted">Reason: ${esc(access.reason)}. Access ends ${esc(fmtDate(access.expiresAt))} and is audit logged.</p></div><button class="danger-btn small-btn" data-action="end-support-access" data-id="${esc(access.id)}">End access</button></section>`;
+}
 function adminHeader(title, description, actions = '') {
-  return `<div class="admin-header"><div><div class="eyebrow">Admin workspace</div><h1>${title}</h1><p>${description}</p></div><div class="header-actions">${actions}</div></div>`;
+  return `${activeSupportAccessBanner()}<div class="admin-header"><div><div class="eyebrow">Admin workspace</div><h1>${title}</h1><p>${description}</p></div><div class="header-actions">${actions}</div></div>`;
 }
 function emptyState(message, action = '') { return `<div class="empty-state"><p>${message}</p>${action}</div>`; }
 function filterBar(name, placeholder, statuses = []) {
@@ -1163,7 +1178,7 @@ function backupPage() {
   return `${adminHeader('Database Backup', 'Create, protect, and recover the complete CBT system record.', '<button class="primary-btn" data-action="create-backup">Create Backup Now</button>')}<section class="panel backup-overview"><div><span class="section-kicker">Secure backup control</span><h2>System snapshots</h2><p>Backups include students, courses, questions, academic periods, grading settings, assessment sessions, submissions, results, audit events, and administrator account details. Password hashes are never exported.</p></div><div class="backup-next-run"><span>Next scheduled run</span><strong>${esc(next)}</strong></div></section><section class="panel" style="margin-top:18px"><div class="panel-heading"><div><h2>Available backups</h2><p class="table-muted">${numeric(items.length)} file${items.length === 1 ? '' : 's'} stored in ${esc(backup.directory || 'database/backups/')}.</p></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Filename</th><th>Created</th><th>Size</th><th>Actions</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No backups have been created yet.</td></tr>'}</tbody></table></div></section><section class="panel backup-settings" style="margin-top:18px"><div class="panel-heading"><div><h2>Automatic backup schedule</h2><p class="table-muted">The server creates the next daily backup when it receives a request at or after the configured server time.</p></div></div><form id="backup-settings-form"><label class="checkbox-field"><input type="checkbox" name="enabled" ${settings.enabled !== false ? 'checked' : ''}> Enable daily automatic backup</label><div class="form-grid"><label class="form-field">Daily server time<input name="time" type="time" value="${esc(settings.time || '02:00')}" required></label><label class="form-field">Maximum backups to keep<input name="retentionCount" type="number" min="1" max="365" value="${numeric(settings.retentionCount, 14)}" required></label></div><p class="table-muted">Oldest files are deleted automatically after the retention limit is reached.</p><div class="modal-actions"><button class="primary-btn">Save backup settings</button></div></form></section><section class="panel backup-restore-panel" style="margin-top:18px"><div class="panel-heading"><div><h2>Restore from backup</h2><p class="table-muted">Restore replaces the current academic and system data. A fresh safety backup is created immediately before any restore.</p></div><button class="danger-btn" data-action="restore-backup">Restore backup</button></div><p class="backup-warning">Sensitive student data is contained in every backup. Store downloaded files securely and keep an off-site copy. Current administrator credentials are retained during a restore because password hashes are intentionally excluded from exports.</p></section><section class="panel backup-information" style="margin-top:18px"><h2>Important information</h2><ul><li>Server copies are stored in <code>database/backups/</code>.</li><li>Download backups regularly and store them in a secure off-site location.</li><li>Retention automatically removes the oldest files after the configured limit.</li></ul></section>`;
 }
 function institutionsPage() {
-  const rows = (state.institutions || []).map(item => `<tr><td><div class="institution-name-cell"><img src="${esc(rootAsset(item.logoPath))}" alt="" aria-hidden="true"><strong>${esc(item.displayName || item.name)}</strong></div></td><td><code>/i/${esc(item.slug)}/</code></td><td>${esc(item.adminEmail || '—')}</td><td><span class="status-pill ${item.active ? '' : 'status-muted'}">${item.active ? 'Active' : 'Suspended'}</span></td><td>${esc(fmtDate(item.createdAt))}</td><td class="table-actions"><a class="outline-btn small-btn" href="${esc(APP_ROOT)}/i/${esc(item.slug)}/admin/settings">Manage settings</a><button class="outline-btn small-btn" data-action="edit-institution-branding" data-id="${esc(item.id)}">Edit branding</button><button class="${item.active ? 'danger-btn' : 'primary-btn'} small-btn" data-action="toggle-institution-status" data-id="${esc(item.id)}" data-active="${item.active ? '1' : '0'}">${item.active ? 'Suspend' : 'Activate'}</button><button class="danger-btn small-btn" data-action="delete-institution" data-id="${esc(item.id)}">Delete institution</button></td></tr>`).join('');
+  const rows = (state.institutions || []).map(item => `<tr><td><div class="institution-name-cell"><img src="${esc(rootAsset(item.logoPath))}" alt="" aria-hidden="true"><strong>${esc(item.displayName || item.name)}</strong></div></td><td><code>/i/${esc(item.slug)}/</code></td><td>${esc(item.adminEmail || '—')}</td><td><span class="status-pill ${item.active ? '' : 'status-muted'}">${item.active ? 'Active' : 'Suspended'}</span></td><td>${esc(fmtDate(item.createdAt))}</td><td class="table-actions"><button class="outline-btn small-btn" data-action="start-support-access" data-id="${esc(item.id)}">Support access</button><button class="outline-btn small-btn" data-action="edit-institution-branding" data-id="${esc(item.id)}">Edit branding</button><button class="${item.active ? 'danger-btn' : 'primary-btn'} small-btn" data-action="toggle-institution-status" data-id="${esc(item.id)}" data-active="${item.active ? '1' : '0'}">${item.active ? 'Suspend' : 'Activate'}</button><button class="danger-btn small-btn" data-action="delete-institution" data-id="${esc(item.id)}">Delete institution</button></td></tr>`).join('');
   return `${adminHeader('Institutions', 'Create and oversee isolated institution workspaces. Tenant Admins remain restricted to their own institution.', '<button class="primary-btn" data-action="new-institution">+ Create institution</button>')}<section class="panel institution-provisioning-note"><strong>Platform Super Admin only</strong><p>Creation seeds the tenant’s roles, grading scale, settings, empty academic session, branded portal, and one Admin account. The initial temporary password is shown once and must be changed on first sign-in.</p></section><section class="panel table-panel" style="margin-top:18px"><div class="panel-heading"><div><h2>Provisioned institutions</h2><p class="table-muted">${numeric((state.institutions || []).length)} isolated institution workspace${numeric((state.institutions || []).length) === 1 ? '' : 's'}.</p></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Institution</th><th>Path</th><th>Initial Admin</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No institutions are available.</td></tr>'}</tbody></table></div></section>`;
 }
 function supportStatusPill(status) {
@@ -1177,7 +1192,7 @@ function supportMessagesPage() {
   const filter = state.filters.messages;
   const items = inbox.items || [];
   const intro = platform
-    ? 'Review support threads from every institution. Replies are delivered only to the tenant that owns the selected thread.'
+    ? 'Review support metadata from every institution. Message content remains private to the owning tenant; replies are delivered only to that tenant.'
     : 'Contact the Berevion platform team. Only administrators in this institution can view these threads.';
   const filterForm = `<form id="support-inbox-filter-form" class="filter-bar support-filter"><label><span class="sr-only">Thread status</span><select class="select-field" name="status"><option value="">All statuses</option><option value="open" ${filter.status === 'open' ? 'selected' : ''}>Open</option><option value="resolved" ${filter.status === 'resolved' ? 'selected' : ''}>Resolved</option></select></label>${platform ? `<label><span class="sr-only">Institution</span><select class="select-field" name="institutionId"><option value="">All institutions</option>${(inbox.institutions || []).map(item => `<option value="${esc(item.id)}" ${String(filter.institutionId) === String(item.id) ? 'selected' : ''}>${esc(item.displayName || item.name)}</option>`).join('')}</select></label>` : ''}<button class="outline-btn">Filter</button>${filter.status || filter.institutionId ? '<button class="ghost-btn" type="button" data-action="clear-support-filter">Clear</button>' : ''}</form>`;
   const rows = items.map(item => {
@@ -1186,7 +1201,7 @@ function supportMessagesPage() {
     return `<button class="support-thread-row ${selected ? 'active' : ''} ${item.unread ? 'unread' : ''}" type="button" data-route="admin/messages/${esc(item.id)}"><span class="support-thread-row-top"><strong>${esc(item.subject)}</strong>${item.unread ? '<b class="support-unread-dot"><span class="sr-only">Unread reply</span></b>' : ''}</span>${context}<span class="support-thread-row-meta">${supportStatusPill(item.status)}<time datetime="${esc(item.lastMessageAt || '')}">${esc(fmtDate(item.lastMessageAt))}</time></span></button>`;
   }).join('');
   const threadHeader = thread ? `<div class="support-thread-heading"><div>${platform ? `<span class="section-kicker">${esc(thread.institutionName || 'Institution')} <code>/i/${esc(thread.institutionSlug || '')}/</code></span>` : '<span class="section-kicker">Platform support</span>'}<h2>${esc(thread.subject)}</h2><p class="table-muted">Created ${esc(fmtDate(thread.createdAt))}</p></div><div class="table-actions">${supportStatusPill(thread.status)}${platform ? `<button class="${thread.status === 'open' ? 'danger-btn' : 'primary-btn'} small-btn" type="button" data-action="support-thread-status" data-status="${thread.status === 'open' ? 'resolved' : 'open'}">${thread.status === 'open' ? 'Resolve thread' : 'Reopen thread'}</button>` : ''}</div></div>` : '<div class="support-thread-heading"><div><span class="section-kicker">Select a conversation</span><h2>Support conversation</h2><p class="table-muted">Choose a thread from the inbox to read and reply.</p></div></div>';
-  const messageList = thread ? (messages.length ? messages.map(message => `<article class="support-message ${message.senderScope === 'platform_super_admin' ? 'from-platform' : 'from-tenant'}"><header><strong>${esc(message.senderLabel)}</strong><time datetime="${esc(message.createdAt || '')}">${esc(fmtDate(message.createdAt))}</time></header><p>${supportMessageBody(message.body)}</p></article>`).join('') : emptyState('No messages have been posted in this thread yet.')) : emptyState('Select a support thread to view its messages.');
+  const messageList = thread ? (platform ? `<div class="support-resolved-note"><strong>Message content is private.</strong><span>This workspace exposes thread metadata only (${numeric(thread.messageCount)} ${numeric(thread.messageCount) === 1 ? 'message' : 'messages'}). The message bodies remain available only within the owning tenant.</span></div>` : (messages.length ? messages.map(message => `<article class="support-message ${message.senderScope === 'platform_super_admin' ? 'from-platform' : 'from-tenant'}"><header><strong>${esc(message.senderLabel)}</strong><time datetime="${esc(message.createdAt || '')}">${esc(fmtDate(message.createdAt))}</time></header><p>${supportMessageBody(message.body)}</p></article>`).join('') : emptyState('No messages have been posted in this thread yet.'))) : emptyState('Select a support thread to view its messages.');
   const reply = thread ? (thread.canReply ? `<form id="support-thread-reply-form" data-scope="${platform ? 'platform' : 'tenant'}" data-thread-id="${esc(thread.id)}" class="support-reply-form"><div class="alert" role="alert"></div><label class="form-field">Reply<textarea name="message" maxlength="5000" rows="5" placeholder="Write a clear support reply…" required></textarea></label><div class="modal-actions"><button class="primary-btn">Send reply</button></div></form>` : `<div class="support-resolved-note"><strong>This thread is resolved.</strong><span>${platform ? 'Reopen it before sending another platform reply.' : 'Only the platform Super Admin can reopen it.'}</span></div>`) : '';
   const detail = `<section class="panel support-thread-panel">${threadHeader}<div class="support-message-list" aria-live="polite">${messageList}</div>${reply}</section>`;
   return `${adminHeader(platform ? 'Support messages' : 'Messages', intro, platform ? '' : '<button class="primary-btn" data-action="new-support-thread">+ New message</button>')}<section class="panel support-inbox-toolbar"><div><span class="section-kicker">${platform ? 'Platform support inbox' : 'Institution support inbox'}</span><h2>${numeric(inbox.unreadCount)} unread ${numeric(inbox.unreadCount) === 1 ? 'reply' : 'replies'}</h2></div>${filterForm}</section><div class="support-messages-layout"><section class="panel support-inbox-panel"><div class="panel-heading"><div><h2>${platform ? 'All tenant threads' : 'Your institution’s threads'}</h2><p class="table-muted">${numeric(inbox.meta?.total)} thread${numeric(inbox.meta?.total) === 1 ? '' : 's'}.</p></div></div><div class="support-thread-list">${rows || emptyState('No support threads match this filter.', platform ? '' : '<button class="primary-btn" data-action="new-support-thread">Start a support thread</button>')}</div>${pager('messages')}</section>${detail}</div>`;
@@ -1217,6 +1232,9 @@ function refreshAccentPreview(form) {
 function institutionProvisionForm() {
   const profile = accentProfile('#16774d');
   openModal('Create institution', `<form id="platform-institution-form" enctype="multipart/form-data"><div class="alert" role="alert"></div><p class="table-muted">All fields are required. The uploaded logo is used on the student portal, sign-in pages, admin header, and printable result sheet.</p><div class="form-grid"><label class="form-field wide">Institution name<input name="name" autocomplete="organization" maxlength="190" required autofocus></label><label class="form-field">Initial Admin email<input name="adminEmail" type="email" autocomplete="email" maxlength="254" required></label><label class="form-field">Subdomain / path slug<input name="slug" autocomplete="off" pattern="[a-z0-9](?:[a-z0-9-]{0,118}[a-z0-9])?" maxlength="120" placeholder="example-college" required><small>Lowercase letters, numbers, and hyphens. The portal path will be <code>/i/your-slug/</code>.</small></label><label class="form-field wide">Institution logo<input name="logo" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" required><small>PNG, JPEG, or WebP; up to 2 MB.</small></label><label class="form-field">Primary accent colour<input name="accentColor" type="color" value="#16774d" required></label><label class="form-field">Navigation label <small>(optional)</small><input name="navLabel" maxlength="190" placeholder="Defaults to Institution name CBT"></label><label class="form-field wide">Footer line one <small>(optional)</small><textarea name="footerPrimary" maxlength="400" placeholder="Defaults to the institution certification line"></textarea></label><label class="form-field wide">Footer line two <small>(optional)</small><textarea name="footerSecondary" maxlength="400" placeholder="Defaults to the assessment service line"></textarea></label><label class="form-field wide">Footer legal text <small>(optional)</small><textarea name="footerLegal" maxlength="400" placeholder="Defaults to © {year} Institution name. All rights reserved."></textarea></label></div>${accentPreview(profile)}<div class="modal-actions"><button class="outline-btn" type="button" data-action="close-modal">Cancel</button><button class="primary-btn" type="submit">Create institution</button></div></form>`);
+}
+function supportAccessForm(institution) {
+  openModal('Start tenant support access', `<form id="platform-support-access-form" data-institution-id="${esc(institution.id)}" data-slug="${esc(institution.slug)}"><div class="alert" role="alert"></div><p class="form-help">This grants access only to <strong>${esc(institution.displayName || institution.name)}</strong> for the selected time. Every start and end is audit logged.</p><label class="form-field">Reason<textarea name="reason" maxlength="1000" minlength="10" rows="5" required autofocus placeholder="Describe the support case or investigation"></textarea></label><label class="form-field">Access duration<select name="minutes"><option value="15">15 minutes</option><option value="5">5 minutes</option><option value="30">30 minutes</option><option value="60">60 minutes</option></select></label><div class="modal-actions"><button type="button" class="outline-btn" data-action="close-modal">Cancel</button><button class="primary-btn">Start support access</button></div></form>`);
 }
 function institutionBrandingForm(item) {
   const brand = item?.branding || {}, accent = brand.accentSourceColor || '#16774d', profile = accentProfile(accent);
@@ -1484,10 +1502,12 @@ function usersPage() {
   const editableRoles = state.roles.filter(role => !role.systemLocked);
   const users = state.adminUsers;
   const rows = users.map(user => {
-    const protectedUser = Boolean(user.systemLocked);
+    // Tenant Superadmin identities are deliberately immutable from this
+    // directory. They manage their own profile in Account settings instead.
+    const protectedUser = Boolean(user.systemLocked || user.roleId === 'superadmin');
     const roleOptions = editableRoles.map(role => `<option value="${esc(role.id)}" ${user.roleId === role.id ? 'selected' : ''}>${esc(role.name)}</option>`).join('');
     const controls = protectedUser
-      ? '<span class="table-muted">System protected</span>'
+      ? '<span class="status-pill status-warning" title="This Superadmin account is protected in User Management. Use Account settings to manage its own profile.">Protected account</span>'
       : `<form class="user-inline-form" data-id="${esc(user.id)}" data-name="${esc(user.name)}" data-email="${esc(user.email)}"><select class="select-field small-select" name="roleId">${roleOptions}</select><select class="select-field small-select" name="active"><option value="true" ${user.active ? 'selected' : ''}>Active</option><option value="false" ${user.active ? '' : 'selected'}>Disabled</option></select><button class="outline-btn small-btn">Save</button><button type="button" class="outline-btn small-btn" data-action="edit-admin-user" data-id="${esc(user.id)}">Edit</button><button type="button" class="danger-btn small-btn" data-action="disable-admin-user" data-id="${esc(user.id)}">Disable</button><button type="button" class="danger-btn small-btn" data-action="delete-admin-user" data-id="${esc(user.id)}">Delete</button></form>`;
     return `<tr><td><div class="user-cell"><span class="table-avatar">${esc(candidateInitials(user.name))}</span><span><strong>${esc(user.name)}</strong><small class="table-muted">ID: ${esc(user.id)}</small></span></div></td><td>${esc(user.email)}</td><td>${protectedUser ? '<span class="status-pill status-warning">Superadmin</span>' : esc(user.roleName)}</td><td><span class="status-pill">${user.verified ? 'Verified' : 'Unverified'}</span></td><td><span class="status-pill ${user.active ? '' : 'status-danger'}">${user.active ? 'Active' : 'Disabled'}</span></td><td class="table-muted">${user.lastLoginAt ? fmtDate(user.lastLoginAt) : 'Never'}</td><td class="table-actions">${controls}</td></tr>`;
   }).join('');
@@ -1908,6 +1928,15 @@ async function handleForm(event) {
       state.institutions = (await api('platform-institutions')).items || [];
       showProvisionedInstitution(response);
       toast('Institution provisioned. Store the initial Admin password securely.', 'success');
+    } else if (form.id === 'platform-support-access-form') {
+      const values = formData(form);
+      const response = await post('platform-support-access', {operation: 'start', institutionId: String(form.dataset.institutionId || ''), reason: String(values.reason || '').trim(), minutes: Number(values.minutes || 15)});
+      const access = response.supportAccess || {};
+      if (!access.institutionSlug) throw new Error('The support-access session was created, but its tenant route is unavailable.');
+      state.supportAccess = access;
+      closeModal();
+      toast(`Support access is active until ${fmtDate(access.expiresAt)}.`, 'success');
+      window.location.assign(`${APP_ROOT}/i/${encodeURIComponent(access.institutionSlug)}/admin/overview`);
     } else if (form.id === 'platform-branding-form') {
       const response = await api('platform-institutions', {method: 'POST', body: new FormData(form)});
       state.institutions = (await api('platform-institutions')).items || [];
@@ -2498,6 +2527,21 @@ async function handleAction(button) {
     if (!isPlatformSuperAdmin()) return toast('Only the platform Super Admin can create institutions.', 'error');
     return institutionProvisionForm();
   }
+  if (action === 'start-support-access') {
+    if (!isPlatformSuperAdmin() || TENANT_SLUG) return toast('Start tenant support access from the platform Institutions page.', 'error');
+    const institution = (state.institutions || []).find(item => String(item.id) === String(id));
+    if (!institution) return toast('Institution details are no longer available. Refresh and try again.', 'error');
+    return supportAccessForm(institution);
+  }
+  if (action === 'end-support-access') {
+    const supportAccessId = String(button.dataset.id || '');
+    if (!isPlatformSuperAdmin() || !TENANT_SLUG || !supportAccessId) return toast('This support-access session is no longer available.', 'error');
+    return confirmAction('End support access', 'End this tenant investigation session now? Tenant-scoped administration will be blocked immediately.', 'End access', async () => {
+      await post('platform-support-access', {operation: 'end', supportAccessId});
+      state.supportAccess = null;
+      window.location.assign(`${APP_ROOT}/admin/institutions`);
+    });
+  }
   if (action === 'edit-institution-branding') {
     if (!isPlatformSuperAdmin()) return toast('Only the platform Super Admin can edit institution branding.', 'error');
     const institution = (state.institutions || []).find(item => String(item.id) === String(id));
@@ -2572,7 +2616,11 @@ async function handleAction(button) {
     });
   }
   if (action === 'compose-newsletter') return newsletterForm();
-  if (action === 'edit-admin-user') return adminUserForm(state.adminUsers.find(user => user.id === id));
+  if (action === 'edit-admin-user') {
+    const user = state.adminUsers.find(item => item.id === id);
+    if (user?.roleId === 'superadmin' || user?.systemLocked) return toast('This Superadmin account is protected in User Management. Use Account settings to manage its own profile.', 'error');
+    return adminUserForm(user);
+  }
   if (action === 'approve-admin-request') return approvalForm((state.adminApprovals?.pending || []).find(request => request.id === id));
   if (action === 'reject-admin-request') {
     const request = (state.adminApprovals?.pending || []).find(item => item.id === id);
@@ -2584,6 +2632,7 @@ async function handleAction(button) {
   if (action === 'role-config') return roleForm(state.roles.find(role => role.id === id));
   if (action === 'disable-admin-user') {
     const user = state.adminUsers.find(item => item.id === id);
+    if (user?.roleId === 'superadmin' || user?.systemLocked) return toast('This Superadmin account is protected and cannot be disabled.', 'error');
     return confirmAction('Disable administrator', `Disable ${user?.name || 'this administrator'}? They will no longer be able to sign in.`, 'Disable administrator', async () => { await remove('admin-users', {id}); toast('Administrator disabled.', 'success'); render(); });
   }
   if (action === 'delete-admin-user') {
