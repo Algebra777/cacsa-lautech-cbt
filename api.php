@@ -191,6 +191,12 @@ const DEFAULT_ROLES = [
 ];
 
 function respond(mixed $data, int $status = 200): never {
+    // Compatibility-backed MySQL writes used to run only during PHP shutdown.
+    // If a constraint failed at that late point, Apache replaced the intended
+    // JSON response with an opaque 500. Persist before sending headers so a
+    // write either succeeds or the normal exception handler can return a
+    // safe, actionable API error.
+    if (function_exists('mysqlFlushPendingData')) mysqlFlushPendingData();
     http_response_code($status);
     $correlationId = (string)($_SERVER['CBT_ALGEBRA_CORRELATION_ID'] ?? '');
     if ($correlationId !== '') {
@@ -1728,6 +1734,10 @@ function persistAdminAccount(array &$data, array $account): void {
 }
 function publicAccount(array $account, array $data): array {
     $result = publicAdminUser($account, $data['roles'], $data['adminUserActivity']);
+    // Tenant rows do not carry a persisted scope field. Expose the resolved
+    // scope explicitly so the client can apply its tenant-only navigation
+    // rules after the first account refresh.
+    $result['scope'] = ($account['scope'] ?? '') === 'platform' ? 'platform' : 'institution';
     if (($account['scope'] ?? '') === 'platform') $result['roleName'] = 'Super Admin';
     $role = findBy($data['roles'], 'id', (string)($account['roleId'] ?? ''));
     $result['permissions'] = ($account['scope'] ?? '') === 'platform' ? ADMIN_PERMISSIONS : ($role['permissions'] ?? []);
@@ -2547,13 +2557,13 @@ function mysqlFastAuditEvents(): never {
 function mysqlFastResults(): never {
     mysqlFastRequireAdmin();$sessionId=(string)($_GET['sessionId']??'');$semesterId=(string)($_GET['semesterId']??'');$search=trim((string)($_GET['search']??$_GET['q']??''));$aggregate='SELECT student_id,COUNT(*) completed_components,MAX(CONCAT(DATE_FORMAT(submitted_at,\'%Y%m%d%H%i%s%f\'),CHAR(31),id)) latest_key FROM component_submissions WHERE institution_id=?';$params=[mysqlCurrentInstitutionId()];if($sessionId!==''){$aggregate.=' AND academic_session_id=?';$params[]=$sessionId;}if($semesterId!==''){$aggregate.=' AND academic_semester_id=?';$params[]=$semesterId;}$aggregate.=' GROUP BY student_id';$outer=" FROM ({$aggregate}) grouped INNER JOIN component_submissions cs ON cs.institution_id=? AND cs.student_id=grouped.student_id AND CONCAT(DATE_FORMAT(cs.submitted_at,'%Y%m%d%H%i%s%f'),CHAR(31),cs.id)=grouped.latest_key INNER JOIN students s ON s.institution_id=cs.institution_id AND s.id=cs.student_id LEFT JOIN academic_sessions acs ON acs.institution_id=cs.institution_id AND acs.id=cs.academic_session_id LEFT JOIN academic_semesters sem ON sem.institution_id=cs.institution_id AND sem.id=cs.academic_semester_id LEFT JOIN calculated_results cr ON cr.institution_id=cs.institution_id AND cr.student_id=cs.student_id AND cr.session_id=cs.academic_session_id AND cr.semester_id=cs.academic_semester_id";$outerParams=array_merge($params,[mysqlCurrentInstitutionId()]);if($search!==''){$outer.=' WHERE (s.full_name LIKE ? OR s.matric_number LIKE ?)';$outerParams[]='%'.$search.'%';$outerParams[]='%'.$search.'%';}$sort=(string)($_GET['sort']??'');$direction=(($_GET['order']??$_GET['dir']??'asc')==='desc')?'DESC':'ASC';$order=['studentName'=>'s.full_name','matricNumber'=>'s.matric_number','completedComponents'=>'grouped.completed_components','latestSubmittedAt'=>'cs.submitted_at'][$sort]??'s.full_name';$pageSize=max(1,min(100,(int)($_GET['pageSize']??$_GET['limit']??25)));$count=mysqlAppPdo()->prepare('SELECT COUNT(*)'.$outer);$count->execute($outerParams);$total=(int)$count->fetchColumn();$pages=max(1,(int)ceil($total/$pageSize));$page=max(1,min($pages,(int)($_GET['page']??1)));$statement=mysqlAppPdo()->prepare('SELECT cs.student_id,s.full_name,s.matric_number,grouped.completed_components,cs.submitted_at,cs.academic_session_id,cs.academic_semester_id,acs.label session_label,sem.label semester_label,cr.id calculated_id'.$outer." ORDER BY {$order} {$direction},s.matric_number ASC LIMIT ? OFFSET ?");foreach($outerParams as $index=>$value)$statement->bindValue($index+1,$value);$statement->bindValue(count($outerParams)+1,$pageSize,PDO::PARAM_INT);$statement->bindValue(count($outerParams)+2,($page-1)*$pageSize,PDO::PARAM_INT);$statement->execute();$items=[];foreach($statement->fetchAll() as $row)$items[]=['studentId'=>$row['student_id'],'studentName'=>$row['full_name'],'matricNumber'=>$row['matric_number'],'completedComponents'=>(int)$row['completed_components'],'latestSubmittedAt'=>mysqlIso($row['submitted_at']),'sessionId'=>$row['academic_session_id']??'','semesterId'=>$row['academic_semester_id']??'','sessionLabel'=>$row['session_label']??'Unassigned session','semesterLabel'=>$row['semester_label']??'Unassigned semester','calculated'=>$row['calculated_id']!==null];$periods=mysqlAppPdo()->prepare('SELECT DISTINCT cs.academic_session_id session_id,cs.academic_semester_id semester_id,acs.label session_label,sem.label semester_label FROM component_submissions cs LEFT JOIN academic_sessions acs ON acs.institution_id=cs.institution_id AND acs.id=cs.academic_session_id LEFT JOIN academic_semesters sem ON sem.institution_id=cs.institution_id AND sem.id=cs.academic_semester_id WHERE cs.institution_id=? ORDER BY session_label DESC,semester_label DESC');$periods->execute([mysqlCurrentInstitutionId()]);$periodItems=[];foreach($periods->fetchAll() as $row)$periodItems[]=['sessionId'=>$row['session_id']??'','semesterId'=>$row['semester_id']??'','sessionLabel'=>$row['session_label']??'Unassigned session','semesterLabel'=>$row['semester_label']??'Unassigned semester'];respond(['items'=>$items,'meta'=>['total'=>$total,'page'=>$page,'pageSize'=>$pageSize,'limit'=>$pageSize,'pages'=>$pages,'totalPages'=>$pages],'periods'=>$periodItems]);
 }
-/** Algebra Stage 1 is deliberately narrower than ordinary tenant permissions:
- * it is available only to the institution's top-level Admin session.  A
+/** Algebra is deliberately narrower than ordinary tenant permissions:
+ * it is available only to the institution's Superadmin session. A
  * platform session, an unscoped URL, and a sub-admin role cannot use these
  * data-bearing endpoints. */
 function mysqlAlgebraRequireTenantAdmin(): array {
     $session = mysqlFastRequireAdmin();
-    $tenantAdmin = ($session['scope'] ?? '') === 'institution' && isInstitutionAdminRole((string)($session['roleId'] ?? ''));
+    $tenantAdmin = ($session['scope'] ?? '') === 'institution' && (string)($session['roleId'] ?? '') === 'superadmin';
     $platformTenantContext = ($session['scope'] ?? '') === 'platform' && requestHasExplicitInstitutionPath();
     if (!$tenantAdmin && !$platformTenantContext) {
         respond(['error' => 'Resource not found.'], 404);
@@ -3509,8 +3519,8 @@ if ($action === 'platform-institutions' && $method === 'POST') {
     }
     if ($operation !== 'create') respond(['error' => 'Unknown institution action.'], 422);
     $name = requireText($_POST['name'] ?? null, 'Institution name', 190);
-    $email = strtolower(requireText($_POST['adminEmail'] ?? null, 'Initial Admin email', 254));
-    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) respond(['error' => 'Enter a valid initial Admin email address.'], 422);
+    $email = strtolower(requireText($_POST['adminEmail'] ?? null, 'Initial Superadmin email', 254));
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) respond(['error' => 'Enter a valid initial Superadmin email address.'], 422);
     $slug = institutionProvisionSlug((string)($_POST['slug'] ?? ''));
     $logo = institutionLogoUpload($slug);
     $accent = institutionAccentProfile($_POST['accentColor'] ?? null, ($_POST['accentAcknowledged'] ?? '') === '1');
@@ -3520,7 +3530,10 @@ if ($action === 'platform-institutions' && $method === 'POST') {
     $footerLegal = trim((string)($_POST['footerLegal'] ?? '')) ?: '© {year} ' . $name . '. All rights reserved.';
     foreach (['Navigation label' => $navLabel, 'Footer line one' => $footerPrimary, 'Footer line two' => $footerSecondary, 'Footer legal text' => $footerLegal] as $label => $value) if (textLength($value) > 400 || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', $value)) respond(['error' => $label . ' is too long or contains invalid characters.'], 422);
     $password = provisionTemporaryPassword();
-    $roles = array_values(array_filter(DEFAULT_ROLES, static fn(array $role): bool => $role['id'] !== 'superadmin'));
+    // Every tenant starts with exactly one institution Superadmin. That
+    // identity owns administrator, role, backup, and recovery-code control
+    // for the tenant and may subsequently create operational Admin accounts.
+    $roles = DEFAULT_ROLES;
     $branding = [
         'displayName' => $name, 'portalTitle' => $name . ' CBT', 'logoPath' => $logo['path'], 'faviconPath' => 'favicon.php',
         'accentSourceColor' => $accent['source'], 'primaryColor' => $accent['primary'], 'accentColor' => $accent['accent'], 'navLabel' => $navLabel, 'assessmentLabel' => 'Assessment centre',
@@ -3529,8 +3542,8 @@ if ($action === 'platform-institutions' && $method === 'POST') {
     ];
     try {
         $institution = mysqlProvisionInstitution([
-            'name' => $name, 'slug' => $slug, 'branding' => $branding, 'roles' => $roles, 'adminId' => 'tenant-admin-' . id(),
-            'adminName' => $name . ' Admin', 'adminEmail' => $email, 'adminPasswordHash' => passwordHash($password), 'actorEmail' => (string)$session['email'],
+            'name' => $name, 'slug' => $slug, 'branding' => $branding, 'roles' => $roles, 'adminId' => 'tenant-superadmin-' . id(),
+            'adminName' => $name . ' Superadmin', 'adminEmail' => $email, 'adminPasswordHash' => passwordHash($password), 'actorEmail' => (string)$session['email'],
             'correlationId' => (string)($session['correlationId'] ?? ('platform-provision-' . id())), 'gradingScale' => DEFAULT_GRADING_SCALE,
             'integrityPolicy' => DEFAULT_INTEGRITY_POLICY, 'settings' => ['examSecurity' => DEFAULT_EXAM_SECURITY, 'backup' => DEFAULT_BACKUP_SETTINGS, 'auditRetention' => DEFAULT_AUDIT_RETENTION_SETTINGS, 'studentPortalSetupMode' => false, 'resultLogoUrl' => $logo['path']]
         ]);
@@ -3542,7 +3555,7 @@ if ($action === 'platform-institutions' && $method === 'POST') {
         if (is_file($logo['absolutePath'])) @unlink($logo['absolutePath']);
         throw $error;
     }
-    respond(['institution' => $institution, 'initialAdmin' => ['email' => $email, 'temporaryPassword' => $password, 'mustChangePassword' => true]], 201);
+    respond(['institution' => $institution, 'initialSuperadmin' => ['email' => $email, 'temporaryPassword' => $password, 'mustChangePassword' => true]], 201);
 }
 if ($action === 'roles' && $method === 'GET') {
     auth(true); $items = [];
@@ -3920,6 +3933,11 @@ if ($action === 'students' && in_array($method, ['PUT','DELETE'], true)) {
         $data['sessions'] = array_values(array_filter($data['sessions'], fn($item) => ($item['studentId'] ?? '') !== $studentId));
         $data['results'] = array_values(array_filter($data['results'], fn($item) => ($item['studentId'] ?? '') !== $studentId));
         $data['calculatedResults'] = array_values(array_filter($data['calculatedResults'], fn($item) => ($item['studentId'] ?? '') !== $studentId));
+        // A student-owned newsletter subscription has a database foreign key
+        // to the student record. Permanent account deletion must remove that
+        // linked subscription too; otherwise MySQL correctly prevents the
+        // parent deletion and the UI receives an avoidable server error.
+        $data['newsletterSubscribers'] = array_values(array_filter($data['newsletterSubscribers'], fn($item) => ($item['studentId'] ?? '') !== $studentId));
         $data['examFlags'] = array_values(array_filter($data['examFlags'], fn($item) => !isset($sessionIds[(string)($item['sessionId'] ?? '')])));
         foreach ($data['exams'] as $exam) clearExamLoginFailures($data, (string)$student['matricNumber'], (string)($exam['id'] ?? ''));
         auditEvent($data, 'admin', adminActorId(), 'student_deleted', 'student', $studentId, [

@@ -407,7 +407,7 @@ function mysqlProvisionInstitution(array $input): array {
             $insertRole->execute(['institution_id' => $institutionId, 'id' => $role['id'], 'name' => $role['name'], 'description' => $role['description'], 'max_users' => $role['maxUsers'], 'system_locked' => !empty($role['systemLocked']) ? 1 : 0]);
             foreach ($role['permissions'] as $permission) $insertPermission->execute(['institution_id' => $institutionId, 'role_id' => $role['id'], 'permission' => $permission]);
         }
-        $pdo->prepare('INSERT INTO admin_users (institution_id,id,role_id,name,email,password_hash,active,verified,must_change_password,created_at,approved_at,approved_by) VALUES (:institution_id,:id,\'admin\',:name,:email,:password_hash,1,1,1,:created_at,:approved_at,:approved_by)')->execute([
+        $pdo->prepare('INSERT INTO admin_users (institution_id,id,role_id,name,email,password_hash,active,verified,must_change_password,created_at,approved_at,approved_by) VALUES (:institution_id,:id,\'superadmin\',:name,:email,:password_hash,1,1,1,:created_at,:approved_at,:approved_by)')->execute([
             'institution_id' => $institutionId, 'id' => $input['adminId'], 'name' => $input['adminName'], 'email' => $input['adminEmail'], 'password_hash' => $input['adminPasswordHash'], 'created_at' => $createdAt, 'approved_at' => $createdAt, 'approved_by' => $input['actorEmail']
         ]);
         $insertBand = $pdo->prepare('INSERT INTO grading_scale_bands (institution_id,ordinal,min_score,max_score,grade,grade_point) VALUES (:institution_id,:ordinal,:min_score,:max_score,:grade,:grade_point)');
@@ -417,7 +417,7 @@ function mysqlProvisionInstitution(array $input): array {
         $insertSetting = $pdo->prepare('INSERT INTO institution_settings (institution_id,setting_key,setting_json) VALUES (:institution_id,:setting_key,:setting_json)');
         foreach ($input['settings'] as $key => $value) $insertSetting->execute(['institution_id' => $institutionId, 'setting_key' => $key, 'setting_json' => json_encode($value, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)]);
         $pdo->prepare('INSERT INTO academic_sessions (institution_id,id,label,is_active,created_at) VALUES (:institution_id,:id,:label,1,:created_at)')->execute(['institution_id' => $institutionId, 'id' => 'initial-session', 'label' => 'Set academic session in Settings', 'created_at' => $createdAt]);
-        mysqlInsertPlatformAudit($pdo, $input['actorEmail'], 'institution_created', $institutionId, 'institution', (string)$institutionId, 'success', $input['correlationId'], ['name' => $input['name'], 'slug' => $input['slug'], 'initialAdminEmail' => $input['adminEmail'], 'forcedPasswordChange' => true]);
+        mysqlInsertPlatformAudit($pdo, $input['actorEmail'], 'institution_created', $institutionId, 'institution', (string)$institutionId, 'success', $input['correlationId'], ['name' => $input['name'], 'slug' => $input['slug'], 'initialSuperadminEmail' => $input['adminEmail'], 'forcedPasswordChange' => true]);
         $pdo->commit();
         return ['id' => $institutionId, 'name' => $input['name'], 'slug' => $input['slug'], 'adminEmail' => $input['adminEmail'], 'adminName' => $input['adminName'], 'logoPath' => $brand['logoPath'], 'createdAt' => $createdAt];
     } catch (Throwable $error) {
@@ -426,7 +426,7 @@ function mysqlProvisionInstitution(array $input): array {
     }
 }
 function mysqlPlatformInstitutionRows(?int $institutionId = null): array {
-    $sql = 'SELECT i.id,i.name,i.slug,i.active,i.created_at,b.logo_path,b.display_name,b.portal_title,b.favicon_path,b.accent_source_color,b.primary_color,b.accent_color,b.nav_label,b.assessment_label,b.footer_primary,b.footer_secondary,b.footer_legal,b.result_sheet_title,b.newsletter_sender_name,b.support_email,u.email AS admin_email FROM institutions i LEFT JOIN institution_branding b ON b.institution_id=i.id LEFT JOIN admin_users u ON u.institution_id=i.id AND u.role_id=\'admin\'';
+    $sql = 'SELECT i.id,i.name,i.slug,i.active,i.created_at,b.logo_path,b.display_name,b.portal_title,b.favicon_path,b.accent_source_color,b.primary_color,b.accent_color,b.nav_label,b.assessment_label,b.footer_primary,b.footer_secondary,b.footer_legal,b.result_sheet_title,b.newsletter_sender_name,b.support_email,u.email AS admin_email FROM institutions i LEFT JOIN institution_branding b ON b.institution_id=i.id LEFT JOIN admin_users u ON u.institution_id=i.id AND u.role_id=\'superadmin\'';
     $sql .= ' WHERE i.deleted_at IS NULL';
     if ($institutionId !== null) $sql .= ' AND i.id = :institution_id';
     $sql .= ' ORDER BY i.created_at DESC';
@@ -576,11 +576,27 @@ function mysqlTargetedPayload(array $before, array $after): array {
         foreach ($removed as $row) {
             $id = (string)$row[$key];
             if ($name === 'questions') { mysqlTargetedDelete($deletes, 'question_publish_targets', 'question_id', $id, 10); mysqlTargetedDelete($deletes, 'question_options', 'question_id', $id, 10); }
-            if ($name === 'sessions') { mysqlTargetedDelete($deletes, 'attempt_answers', 'attempt_id', $id, 10); mysqlTargetedDelete($deletes, 'attempt_flags', 'attempt_id', $id, 10); mysqlTargetedDelete($deletes, 'attempt_question_snapshots', 'attempt_id', $id, 10); mysqlTargetedDelete($deletes, 'attempt_integrity_events', 'attempt_id', $id, 10); mysqlTargetedDelete($deletes, 'exam_flags', 'attempt_id', $id, 15); }
+            if ($name === 'sessions') {
+                // A submission owns a foreign key to its assessment attempt.
+                // Remove it before the attempt, even when a legacy handler
+                // removes both collections in one request (such as a full
+                // student deletion).
+                mysqlTargetedDelete($deletes, 'attempt_answers', 'attempt_id', $id, 10); mysqlTargetedDelete($deletes, 'attempt_flags', 'attempt_id', $id, 10); mysqlTargetedDelete($deletes, 'attempt_question_snapshots', 'attempt_id', $id, 10); mysqlTargetedDelete($deletes, 'attempt_integrity_events', 'attempt_id', $id, 10); mysqlTargetedDelete($deletes, 'exam_flags', 'attempt_id', $id, 15); mysqlTargetedDelete($deletes, 'component_submissions', 'attempt_id', $id, 20);
+            }
             if ($name === 'calculatedResults') mysqlTargetedDelete($deletes, 'calculated_result_items', 'calculated_result_id', $id, 10);
             if ($name === 'roles') mysqlTargetedDelete($deletes, 'role_permissions', 'role_id', $id, 10);
             if ($name === 'newsletters') mysqlTargetedDelete($deletes, 'newsletter_deliveries', 'newsletter_id', $id, 10);
-            mysqlTargetedDelete($deletes, $table, $column, $id, 30); $changedAny = true;
+            // Parent records must be deleted only after their dependants. The
+            // old one-size-fits-all priority attempted to remove a student
+            // while attempts/results still referenced it, causing a database
+            // constraint violation and an HTTP 500 response.
+            $priority = match ($name) {
+                'results', 'calculatedResults', 'passwords', 'loginTokens', 'newsletterSubscribers' => 20,
+                'sessions' => 30,
+                'students' => 100,
+                default => 30,
+            };
+            mysqlTargetedDelete($deletes, $table, $column, $id, $priority); $changedAny = true;
         }
         $oldRowsById = $name === 'sessions' ? mysqlTargetedRecordMap((array)($before[$name] ?? []), $key) : [];
         foreach ($rows as $row) {
@@ -664,9 +680,22 @@ function mysqlSaveData(array $data): void {
     if ($registered) return;
     $registered = true;
     register_shutdown_function(static function (): void {
-        $pending = $GLOBALS['cacsa_mysql_pending_data'] ?? null;
-        if (is_array($pending)) mysqlPersistData($pending);
+        // A normal API response flushes pending data before output. This is a
+        // defensive fallback for legacy exit paths; do not let a late failure
+        // become an uncaught shutdown fatal after a response was sent.
+        try { mysqlFlushPendingData(); }
+        catch (Throwable $error) { error_log('Berevion deferred MySQL persistence failed: ' . $error->getMessage()); }
     });
+}
+
+/** Commit a queued compatibility write while the request can still return a
+ * structured error. Safe to call more than once in the same request. */
+function mysqlFlushPendingData(): void {
+    $pending = $GLOBALS['cacsa_mysql_pending_data'] ?? null;
+    if (!is_array($pending) || !empty($GLOBALS['cacsa_mysql_pending_data_flushed'])) return;
+    mysqlPersistData($pending);
+    $GLOBALS['cacsa_mysql_pending_data_flushed'] = true;
+    unset($GLOBALS['cacsa_mysql_pending_data']);
 }
 
 function mysqlPersistData(array $data): void {

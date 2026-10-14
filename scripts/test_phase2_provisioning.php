@@ -85,13 +85,13 @@ try {
     $createdInstitutionId = (int)($response['body']['institution']['id'] ?? 0); $temporaryPassword = (string)($response['body']['initialAdmin']['temporaryPassword'] ?? '');
     if ($createdInstitutionId < 2 || $temporaryPassword === '') throw new RuntimeException('Provisioning endpoint did not return the required initial Admin credentials.');
     $checks = [];
-    foreach (['institution_branding' => 1, 'roles' => 3, 'grading_scale_bands' => 6, 'integrity_policies' => 6, 'institution_settings' => 5, 'academic_sessions' => 1, 'admin_users' => 1] as $table => $expected) {
+    foreach (['institution_branding' => 1, 'roles' => 4, 'grading_scale_bands' => 6, 'integrity_policies' => 6, 'institution_settings' => 5, 'academic_sessions' => 1, 'admin_users' => 1] as $table => $expected) {
         $statement = $pdo->prepare("SELECT COUNT(*) FROM {$table} WHERE institution_id = :institution_id"); $statement->execute(['institution_id' => $createdInstitutionId]);
         if ((int)$statement->fetchColumn() !== $expected) throw new RuntimeException("{$table} seed count did not match.");
         $checks[$table] = 'seeded';
     }
-    $forced = $pdo->prepare('SELECT must_change_password FROM admin_users WHERE institution_id = :institution_id AND role_id = \'admin\''); $forced->execute(['institution_id' => $createdInstitutionId]);
-    if ((int)$forced->fetchColumn() !== 1) throw new RuntimeException('Initial Admin was not marked for forced password change.'); $checks['initial-admin'] = 'forced-password-change';
+    $forced = $pdo->prepare('SELECT must_change_password FROM admin_users WHERE institution_id = :institution_id AND role_id = \'superadmin\''); $forced->execute(['institution_id' => $createdInstitutionId]);
+    if ((int)$forced->fetchColumn() !== 1) throw new RuntimeException('Initial Superadmin was not marked for forced password change.'); $checks['initial-superadmin'] = 'forced-password-change';
     $tenantBase = 'http://localhost/BEREVION/i/' . rawurlencode($slug) . '/api.php?action=';
     $tenantPortal = provisioningHttp('http://localhost/BEREVION/i/' . rawurlencode($slug) . '/');
     if ($tenantPortal['status'] !== 200 || !str_contains((string)$tenantPortal['raw'], '<div id="app"')) throw new RuntimeException('New tenant public portal root was not routed to the application shell.');
@@ -143,8 +143,8 @@ try {
     // check we retrieve the persisted token hash and use a fresh test token
     // only after verifying that the actual login route accepted the password.
     $tenantToken = bin2hex(random_bytes(32)); $tenantTokenHash = hash('sha256', $tenantToken);
-    $admin = $pdo->prepare('SELECT id,email,name FROM admin_users WHERE institution_id = :institution_id AND role_id = \'admin\''); $admin->execute(['institution_id' => $createdInstitutionId]); $adminRow = $admin->fetch();
-    $session = $pdo->prepare('INSERT INTO admin_sessions (institution_id,token_hash,user_id,email,name,role_id,permissions_json,correlation_id,created_at,last_seen_at,expires_at) VALUES (:institution_id,:token_hash,:user_id,:email,:name,\'admin\',:permissions,:correlation,:created_at,:last_seen_at,:expires_at)');
+    $admin = $pdo->prepare('SELECT id,email,name FROM admin_users WHERE institution_id = :institution_id AND role_id = \'superadmin\''); $admin->execute(['institution_id' => $createdInstitutionId]); $adminRow = $admin->fetch();
+    $session = $pdo->prepare('INSERT INTO admin_sessions (institution_id,token_hash,user_id,email,name,role_id,permissions_json,correlation_id,created_at,last_seen_at,expires_at) VALUES (:institution_id,:token_hash,:user_id,:email,:name,\'superadmin\',:permissions,:correlation,:created_at,:last_seen_at,:expires_at)');
     $session->execute(['institution_id' => $createdInstitutionId, 'token_hash' => $tenantTokenHash, 'user_id' => $adminRow['id'], 'email' => $adminRow['email'], 'name' => $adminRow['name'], 'permissions' => json_encode(['overview','students','exams','questions','results','audit','newsletter','settings','roles']), 'correlation' => 'phase2-provisioning-test-tenant', 'created_at' => $now, 'last_seen_at' => $now, 'expires_at' => '2099-12-31 23:59:59.000000']);
     $tenantCookies = provisioningCsrf($tenantBase, ['CBT_ADMIN_SESSION' => $tenantToken]);
     $change = provisioningHttp($tenantBase . 'admin-account', 'POST', $tenantCookies, ['operation' => 'change-password', 'currentPassword' => $temporaryPassword, 'newPassword' => 'Phase2-Verified-Password!42']);

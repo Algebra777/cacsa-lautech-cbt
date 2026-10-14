@@ -178,8 +178,15 @@ function numeric(value, fallback = 0) { const number = Number(value); return Num
 function can(permission) {
   if (permission === 'institutions') return isPlatformSuperAdmin() && !TENANT_SLUG;
   if (permission === 'messages') return isPlatformSuperAdmin() ? !TENANT_SLUG : (!state.adminUser?.permissions || state.adminUser.permissions.includes('messages'));
-  if (permission === 'algebra') return (state.adminUser?.scope === 'institution' && ['admin', 'superadmin'].includes(String(state.adminUser?.roleId || ''))) || (isPlatformSuperAdmin() && Boolean(TENANT_SLUG));
-  if (permission === 'roles' || permission === 'users' || permission === 'approvals' || permission === 'backups' || permission === 'emergency-codes') return !state.adminUser || isInstitutionAdmin();
+  // Algebra is available to both Superadmin types. A platform Super Admin
+  // first chooses a tenant and opens an auditable, time-boxed support context;
+  // the tenant Superadmin uses it directly inside that institution.
+  if (permission === 'algebra') return isTenantSuperadmin() || isPlatformSuperAdmin();
+  // These are tenant control-plane areas. An operational Admin can still run
+  // the academic workspace, but only the tenant Superadmin may manage
+  // administrator identities, roles, approvals, backups, or recovery codes.
+  // Keep the menu boundary aligned with the API's server-side authorization.
+  if (permission === 'roles' || permission === 'users' || permission === 'approvals' || permission === 'backups' || permission === 'emergency-codes') return !state.adminUser || isTenantSuperadmin() || isPlatformSuperAdmin();
   if (permission === 'newsletter') return true;
   return !state.adminUser?.permissions || state.adminUser.permissions.includes(permission);
 }
@@ -263,6 +270,7 @@ function showError(error, form = null) {
   toast(message, 'error');
 }
 function isInstitutionAdmin() { return ['admin', 'superadmin', 'platform_super_admin'].includes(String(state.adminUser?.roleId || '')); }
+function isTenantSuperadmin() { return String(state.adminUser?.roleId || '') === 'superadmin'; }
 function isPlatformSuperAdmin() { return state.adminUser?.scope === 'platform' && String(state.adminUser?.roleId || '') === 'platform_super_admin'; }
 function setBusy(element, busy) {
   if (!element) return;
@@ -625,7 +633,7 @@ async function render() {
     // stay current without inventing a separate monitoring feed.
     if (!isAdmin && (route[1] || 'selection') === 'selection') scheduleAvailabilityRefresh();
     if (isAdmin && route[1] === 'audit' && route[2] !== 'trail') scheduleAuditMonitorPoll();
-    if (isAdmin && isInstitutionAdmin()) scheduleApprovalBadgePoll();
+    if (isAdmin && can('approvals')) scheduleApprovalBadgePoll();
   } catch (error) {
     if (serial !== state.loadSerial) return;
     // A direct /admin or /i/{tenant}/admin visit has no client-side session
@@ -665,7 +673,7 @@ function scheduleAuditMonitorPoll() {
 function scheduleApprovalBadgePoll() {
   state.approvalPollId = setTimeout(async () => {
     state.approvalPollId = null;
-    if (!state.adminAuthenticated || !isInstitutionAdmin()) return;
+    if (!state.adminAuthenticated || !can('approvals')) return;
     try {
       const response = await api('admin-approvals', {}, {summary: 'true'});
       state.pendingApprovalCount = numeric(response.summary?.pending);
@@ -674,7 +682,7 @@ function scheduleApprovalBadgePoll() {
         badge.classList.toggle('is-empty', !state.pendingApprovalCount);
       });
     } catch { /* The next navigation will surface a session or connectivity error. */ }
-    if (state.adminAuthenticated && isInstitutionAdmin()) scheduleApprovalBadgePoll();
+    if (state.adminAuthenticated && can('approvals')) scheduleApprovalBadgePoll();
   }, 20000);
 }
 
@@ -756,9 +764,16 @@ async function loadAdmin(route) {
   // one-time password is replaced. Do not preload approval data here: that
   // protected request would correctly be rejected and previously hid the
   // force-password form behind an "Unable to load" error.
-  if (isInstitutionAdmin() && !accountSnapshot.account?.mustChangePassword) {
+  if (can('approvals') && !accountSnapshot.account?.mustChangePassword) {
     const summary = await api('admin-approvals', {}, {summary: 'true'});
     state.pendingApprovalCount = numeric(summary.summary?.pending);
+  }
+  // A saved URL for a Superadmin-only page must not make an operational
+  // Admin's whole workspace look unavailable. The API remains authoritative;
+  // this prevents an avoidable 403 request and returns the user to Overview.
+  if (['roles', 'users', 'approvals', 'backups', 'emergency-codes'].includes(page) && !can(page)) {
+    navigate('admin/overview');
+    return;
   }
   const platformMessages = isPlatformSuperAdmin() && !TENANT_SLUG;
   if (can('messages') && !accountSnapshot.account?.mustChangePassword) {
@@ -801,8 +816,12 @@ async function loadAdmin(route) {
     }
   }
   if (page === 'algebra') {
-    const [courses, results] = await Promise.all([api('courses', {}, {pageSize: 100}), api('results', {}, {pageSize: 100})]);
-    state.courses = courses.items || []; state.algebraResults = results.items || [];
+    if (isPlatformSuperAdmin() && !TENANT_SLUG) {
+      state.institutions = (await api('platform-institutions')).items || [];
+    } else {
+      const [courses, results] = await Promise.all([api('courses', {}, {pageSize: 100}), api('results', {}, {pageSize: 100})]);
+      state.courses = courses.items || []; state.algebraResults = results.items || [];
+    }
   }
   if (page === 'institutions') state.institutions = (await api('platform-institutions')).items || [];
   if (page === 'messages') {
@@ -1108,15 +1127,22 @@ function adminLoginTwoFactorPage() {
   return `<main class="admin-login-page"><section class="admin-login-visual"></section><section class="center-page"><section class="admin-auth-card login-pattern-card"><p class="auth-caption">Two-Factor Authentication</p><h1>Verify your sign-in</h1><p class="form-note">Open your authenticator app and enter the current six-digit code to finish signing in.</p><form id="admin-login-2fa-form"><div class="alert" role="alert"></div><label class="form-field">Authentication code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="123456" required autofocus></label><button class="primary-btn wide auth-submit">Verify and sign in</button></form><p class="form-note"><button class="text-button" data-route="admin/login">Back to sign in</button></p></section></section></main>`;
 }
 function algebraPage() {
+  if (isPlatformSuperAdmin() && !TENANT_SLUG) return platformAlgebraPage();
   const courses = [...(state.courses || [])].sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')));
   const insight = state.algebraInsight;
   const insightOutput = insight ? `<section class="panel algebra-output" style="margin-top:18px"><div class="panel-heading"><div><span class="section-kicker">Read-only analysis</span><h2>Latest performance insight</h2><p class="table-muted">Generated ${esc(fmtDate(insight.generatedAt))}. This is guidance for human review, not a grade or student action.</p></div><button class="outline-btn small-btn" data-action="clear-algebra-insight">Clear</button></div><p class="algebra-summary">${esc(insight.summary || '')}</p><div class="algebra-findings">${(insight.findings || []).map(item => `<article class="algebra-finding priority-${esc(item.priority || 'info')}"><h3>${esc(item.title)}</h3><p>${esc(item.detail)}</p><span>${esc(item.priority || 'info')}</span></article>`).join('')}</div>${(insight.caveats || []).length ? `<div class="algebra-caveats"><strong>Interpretation notes</strong><ul>${insight.caveats.map(item => `<li>${esc(item)}</li>`).join('')}</ul></div>` : ''}</section>` : '';
   return `${adminHeader('Algebra', 'AI-assisted drafting and read-only performance insights for this institution only. Every question still requires human review and Draft-only import.')}<section class="panel algebra-safety-note"><strong>Human control stays required.</strong><span>Algebra cannot publish questions, change grades, send messages, or access another institution’s data. Do not enter student names, matric numbers, email addresses, phone numbers, or other personal data in free-text fields.</span></section><div class="algebra-grid"><section class="panel"><div class="panel-heading"><div><span class="section-kicker">Question drafting</span><h2>Draft questions for review</h2><p class="table-muted">Describe the assessment need. Algebra returns editable drafts only; nothing is saved or published automatically.</p></div></div><form id="algebra-question-draft-form"><div class="alert" role="alert"></div><div class="form-grid"><label class="form-field">Course<select class="select-field" name="courseId" required><option value="">Choose a course</option>${courses.map(course => `<option value="${esc(course.id)}">${esc(course.code)} --- ${esc(course.title)}</option>`).join('')}</select></label><label class="form-field">Topic<input name="topic" maxlength="190" placeholder="e.g. probability distributions" required></label><label class="form-field">Difficulty<select class="select-field" name="difficulty" required><option value="easy">Easy</option><option value="moderate" selected>Moderate</option><option value="challenging">Challenging</option></select></label><label class="form-field">Question count<input name="count" type="number" min="1" max="25" value="5" required></label><label class="form-field">Single-answer questions<input name="singleCount" type="number" min="0" max="25" value="5" required></label><label class="form-field">Multiple-answer questions<input name="multipleCount" type="number" min="0" max="25" value="0" required></label><label class="form-field wide">Additional instructions <small>(optional)</small><textarea name="brief" maxlength="2000" rows="3" placeholder="Learning outcomes, terminology to use, or exclusions."></textarea></label></div><p class="table-muted">The single and multiple counts must add up to the requested total (maximum 25).</p><button class="primary-btn">Generate reviewable Draft questions</button></form></section><section class="panel"><div class="panel-heading"><div><span class="section-kicker">Performance insights</span><h2>Ask about this institution’s results</h2><p class="table-muted">Algebra receives anonymised aggregate statistics only — never student identifiers, credentials, IP addresses, or cross-tenant data.</p></div></div><form id="algebra-performance-insight-form"><div class="alert" role="alert"></div><label class="form-field">Question<textarea name="question" maxlength="2000" rows="7" required placeholder="For example: Which assessment areas should the academic team review first, based on score distribution and most-missed questions?"></textarea></label><button class="outline-btn">Generate read-only insight</button></form></section></div>${insightOutput}`;
 }
+function platformAlgebraPage() {
+  const institutions = (state.institutions || []).filter(item => item.active);
+  const rows = institutions.map(item => `<article class="panel"><div class="panel-heading"><div><span class="section-kicker">Tenant workspace</span><h2>${esc(item.displayName || item.name)}</h2><p class="table-muted">Algebra uses only this institution’s approved, scoped data after support access begins.</p></div><button class="primary-btn small-btn" data-action="open-algebra-institution" data-id="${esc(item.id)}">Open Algebra</button></div></article>`).join('');
+  return `${adminHeader('Algebra', 'Choose an institution to open its Algebra workspace. Access is time-boxed, reasoned, and audit logged.')}<section class="panel algebra-safety-note"><strong>Tenant-scoped AI assistance.</strong><span>Platform Super Admins never receive cross-tenant Algebra data. Select one institution, provide a support reason, and Algebra opens only within that tenant context.</span></section><section class="algebra-section-heading"><span class="section-kicker">Choose institution</span><h2>Open a tenant Algebra workspace</h2><p class="table-muted">The tenant Superadmin can use Algebra directly. Platform access requires a temporary support session for the selected institution.</p></section><div class="algebra-grid">${rows || emptyState('No active institutions are available for Algebra.', '<button class="primary-btn" data-route="admin/institutions">Open Institutions</button>')}</div>`;
+}
 // Stage 2 replaces the compact Stage 1 workspace with grouped, explicitly
 // human-controlled drafting and review tools.  The earlier declaration is
 // deliberately overridden here to keep this change isolated from Stage 1.
 function algebraPage() {
+  if (isPlatformSuperAdmin() && !TENANT_SLUG) return platformAlgebraPage();
   const courses = [...(state.courses || [])].sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')));
   const components = courses.flatMap(course => (course.components || []).map(component => ({...component, courseCode: course.code})));
   const calculated = (state.algebraResults || []).filter(item => item.calculated && item.studentId && item.sessionId && item.semesterId);
@@ -1204,7 +1230,7 @@ function backupPage() {
 }
 function institutionsPage() {
   const rows = (state.institutions || []).map(item => `<tr><td><div class="institution-name-cell"><img src="${esc(rootAsset(item.logoPath))}" alt="" aria-hidden="true"><strong>${esc(item.displayName || item.name)}</strong></div></td><td><code>/i/${esc(item.slug)}/</code></td><td>${esc(item.adminEmail || '—')}</td><td><span class="status-pill ${item.active ? '' : 'status-muted'}">${item.active ? 'Active' : 'Suspended'}</span></td><td>${esc(fmtDate(item.createdAt))}</td><td class="table-actions"><button class="outline-btn small-btn" data-action="start-support-access" data-id="${esc(item.id)}">Support access</button><button class="outline-btn small-btn" data-action="edit-institution-branding" data-id="${esc(item.id)}">Edit branding</button><button class="${item.active ? 'danger-btn' : 'primary-btn'} small-btn" data-action="toggle-institution-status" data-id="${esc(item.id)}" data-active="${item.active ? '1' : '0'}">${item.active ? 'Suspend' : 'Activate'}</button><button class="danger-btn small-btn" data-action="delete-institution" data-id="${esc(item.id)}">Delete institution</button></td></tr>`).join('');
-  return `${adminHeader('Institutions', 'Create and oversee isolated institution workspaces. Tenant Admins remain restricted to their own institution.', '<button class="primary-btn" data-action="new-institution">+ Create institution</button>')}<section class="panel institution-provisioning-note"><strong>Platform Super Admin only</strong><p>Creation seeds the tenant’s roles, grading scale, settings, empty academic session, branded portal, and one Admin account. The initial temporary password is shown once and must be changed on first sign-in.</p></section><section class="panel table-panel" style="margin-top:18px"><div class="panel-heading"><div><h2>Provisioned institutions</h2><p class="table-muted">${numeric((state.institutions || []).length)} isolated institution workspace${numeric((state.institutions || []).length) === 1 ? '' : 's'}.</p></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Institution</th><th>Path</th><th>Initial Admin</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No institutions are available.</td></tr>'}</tbody></table></div></section>`;
+  return `${adminHeader('Institutions', 'Create and oversee isolated institution workspaces. Tenant administrators remain restricted to their own institution.', '<button class="primary-btn" data-action="new-institution">+ Create institution</button>')}<section class="panel institution-provisioning-note"><strong>Platform Super Admin only</strong><p>Creation seeds the tenant’s roles, grading scale, settings, empty academic session, branded portal, and one tenant Superadmin account. The initial temporary password is shown once and must be changed on first sign-in.</p></section><section class="panel table-panel" style="margin-top:18px"><div class="panel-heading"><div><h2>Provisioned institutions</h2><p class="table-muted">${numeric((state.institutions || []).length)} isolated institution workspace${numeric((state.institutions || []).length) === 1 ? '' : 's'}.</p></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Institution</th><th>Path</th><th>Initial Superadmin</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No institutions are available.</td></tr>'}</tbody></table></div></section>`;
 }
 function supportStatusPill(status) {
   const resolved = status === 'resolved';
@@ -1256,10 +1282,11 @@ function refreshAccentPreview(form) {
 }
 function institutionProvisionForm() {
   const profile = accentProfile('#16774d');
-  openModal('Create institution', `<form id="platform-institution-form" enctype="multipart/form-data"><div class="alert" role="alert"></div><p class="table-muted">All fields are required. The uploaded logo is used on the student portal, sign-in pages, admin header, and printable result sheet.</p><div class="form-grid"><label class="form-field wide">Institution name<input name="name" autocomplete="organization" maxlength="190" required autofocus></label><label class="form-field">Initial Admin email<input name="adminEmail" type="email" autocomplete="email" maxlength="254" required></label><label class="form-field">Subdomain / path slug<input name="slug" autocomplete="off" pattern="[a-z0-9](?:[a-z0-9-]{0,118}[a-z0-9])?" maxlength="120" placeholder="example-college" required><small>Lowercase letters, numbers, and hyphens. The portal path will be <code>/i/your-slug/</code>.</small></label><label class="form-field wide">Institution logo<input name="logo" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" required><small>PNG, JPEG, or WebP; up to 2 MB.</small></label><label class="form-field">Primary accent colour<input name="accentColor" type="color" value="#16774d" required></label><label class="form-field">Navigation label <small>(optional)</small><input name="navLabel" maxlength="190" placeholder="Defaults to Institution name CBT"></label><label class="form-field wide">Footer line one <small>(optional)</small><textarea name="footerPrimary" maxlength="400" placeholder="Defaults to the institution certification line"></textarea></label><label class="form-field wide">Footer line two <small>(optional)</small><textarea name="footerSecondary" maxlength="400" placeholder="Defaults to the assessment service line"></textarea></label><label class="form-field wide">Footer legal text <small>(optional)</small><textarea name="footerLegal" maxlength="400" placeholder="Defaults to © {year} Institution name. All rights reserved."></textarea></label></div>${accentPreview(profile)}<div class="modal-actions"><button class="outline-btn" type="button" data-action="close-modal">Cancel</button><button class="primary-btn" type="submit">Create institution</button></div></form>`);
+  openModal('Create institution', `<form id="platform-institution-form" enctype="multipart/form-data"><div class="alert" role="alert"></div><p class="table-muted">All fields are required. The uploaded logo is used on the student portal, sign-in pages, admin header, and printable result sheet.</p><div class="form-grid"><label class="form-field wide">Institution name<input name="name" autocomplete="organization" maxlength="190" required autofocus></label><label class="form-field">Initial Superadmin email<input name="adminEmail" type="email" autocomplete="email" maxlength="254" required></label><label class="form-field">Subdomain / path slug<input name="slug" autocomplete="off" pattern="[a-z0-9](?:[a-z0-9-]{0,118}[a-z0-9])?" maxlength="120" placeholder="example-college" required><small>Lowercase letters, numbers, and hyphens. The portal path will be <code>/i/your-slug/</code>.</small></label><label class="form-field wide">Institution logo<input name="logo" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" required><small>PNG, JPEG, or WebP; up to 2 MB.</small></label><label class="form-field">Primary accent colour<input name="accentColor" type="color" value="#16774d" required></label><label class="form-field">Navigation label <small>(optional)</small><input name="navLabel" maxlength="190" placeholder="Defaults to Institution name CBT"></label><label class="form-field wide">Footer line one <small>(optional)</small><textarea name="footerPrimary" maxlength="400" placeholder="Defaults to the institution certification line"></textarea></label><label class="form-field wide">Footer line two <small>(optional)</small><textarea name="footerSecondary" maxlength="400" placeholder="Defaults to the assessment service line"></textarea></label><label class="form-field wide">Footer legal text <small>(optional)</small><textarea name="footerLegal" maxlength="400" placeholder="Defaults to © {year} Institution name. All rights reserved."></textarea></label></div>${accentPreview(profile)}<div class="modal-actions"><button class="outline-btn" type="button" data-action="close-modal">Cancel</button><button class="primary-btn" type="submit">Create institution</button></div></form>`);
 }
-function supportAccessForm(institution) {
-  openModal('Start tenant support access', `<form id="platform-support-access-form" data-institution-id="${esc(institution.id)}" data-slug="${esc(institution.slug)}"><div class="alert" role="alert"></div><p class="form-help">This grants access only to <strong>${esc(institution.displayName || institution.name)}</strong> for the selected time. Every start and end is audit logged.</p><label class="form-field">Reason<textarea name="reason" maxlength="1000" minlength="10" rows="5" required autofocus placeholder="Describe the support case or investigation"></textarea></label><label class="form-field">Access duration<select name="minutes"><option value="15">15 minutes</option><option value="5">5 minutes</option><option value="30">30 minutes</option><option value="60">60 minutes</option></select></label><div class="modal-actions"><button type="button" class="outline-btn" data-action="close-modal">Cancel</button><button class="primary-btn">Start support access</button></div></form>`);
+function supportAccessForm(institution, destination = 'overview') {
+  const nextPage = destination === 'algebra' ? 'algebra' : 'overview';
+  openModal('Start tenant support access', `<form id="platform-support-access-form" data-institution-id="${esc(institution.id)}" data-slug="${esc(institution.slug)}" data-destination="${nextPage}"><div class="alert" role="alert"></div><p class="form-help">This grants access only to <strong>${esc(institution.displayName || institution.name)}</strong> for the selected time. Every start and end is audit logged.</p><label class="form-field">Reason<textarea name="reason" maxlength="1000" minlength="10" rows="5" required autofocus placeholder="Describe the support case or investigation"></textarea></label><label class="form-field">Access duration<select name="minutes"><option value="15">15 minutes</option><option value="5">5 minutes</option><option value="30">30 minutes</option><option value="60">60 minutes</option></select></label><div class="modal-actions"><button type="button" class="outline-btn" data-action="close-modal">Cancel</button><button class="primary-btn">Start support access</button></div></form>`);
 }
 function institutionBrandingForm(item) {
   const brand = item?.branding || {}, accent = brand.accentSourceColor || '#16774d', profile = accentProfile(accent);
@@ -1269,8 +1296,8 @@ function institutionSoftDeleteForm(item) {
   openModal(`Delete institution — ${item.displayName || item.name}`, `<form id="platform-institution-delete-form" data-institution-id="${esc(item.id)}" data-confirm-name="${esc(item.name)}" data-confirm-slug="${esc(item.slug)}"><div class="alert" role="alert"></div><p class="backup-warning"><strong>This is a guarded soft deletion, not a permanent purge.</strong> The institution will disappear from normal views and all student and administrator access will be blocked. Its academic records, audit history, and a fresh safety backup remain recoverable for at least 30 days.</p><label class="form-field">Why is this institution being deleted?<textarea name="reason" minlength="15" maxlength="2000" required placeholder="Give the operational reason for this deletion."></textarea><small>At least 15 characters. This reason is recorded in the platform audit trail.</small></label><label class="form-field">Type <strong>${esc(item.name)}</strong> or <strong>${esc(item.slug)}</strong> to confirm<input name="confirmation" autocomplete="off" required></label><div class="modal-actions"><button class="outline-btn" type="button" data-action="close-modal">Cancel</button><button class="danger-btn" type="submit" disabled data-institution-delete-submit>Soft-delete institution</button></div></form>`, {closeable: false});
 }
 function showProvisionedInstitution(response) {
-  const institution = response.institution || {}, admin = response.initialAdmin || {};
-  openModal('Institution created', `<div class="provisioned-institution"><p><strong>${esc(institution.name)}</strong> is ready at <code>/i/${esc(institution.slug)}/</code>.</p><p>The tenant Admin must change this temporary password on first sign-in. It is shown only now—copy it and deliver it through a secure channel.</p><div class="instruction-box"><span>Initial Admin: <strong>${esc(admin.email)}</strong></span><strong class="generated-password">${esc(admin.temporaryPassword)}</strong></div><div class="modal-actions"><button class="outline-btn" data-action="copy-provisioned-password" data-password="${esc(admin.temporaryPassword)}">Copy temporary password</button><button class="primary-btn" data-action="close-modal">I stored it securely</button></div></div>`);
+  const institution = response.institution || {}, admin = response.initialSuperadmin || response.initialAdmin || {};
+  openModal('Institution created', `<div class="provisioned-institution"><p><strong>${esc(institution.name)}</strong> is ready at <code>/i/${esc(institution.slug)}/</code>.</p><p>The tenant Superadmin must change this temporary password on first sign-in. It is shown only now—copy it and deliver it through a secure channel.</p><div class="instruction-box"><span>Initial Superadmin: <strong>${esc(admin.email)}</strong></span><strong class="generated-password">${esc(admin.temporaryPassword)}</strong></div><div class="modal-actions"><button class="outline-btn" data-action="copy-provisioned-password" data-password="${esc(admin.temporaryPassword)}">Copy temporary password</button><button class="primary-btn" data-action="close-modal">I stored it securely</button></div></div>`);
 }
 function emergencyCodesPage() {
   const summary = state.emergencyCodes || {}, active = Boolean(summary.active), remaining = numeric(summary.remaining);
@@ -1961,7 +1988,8 @@ async function handleForm(event) {
       state.supportAccess = access;
       closeModal();
       toast(`Support access is active until ${fmtDate(access.expiresAt)}.`, 'success');
-      window.location.assign(`${APP_ROOT}/i/${encodeURIComponent(access.institutionSlug)}/admin/overview`);
+      const destination = form.dataset.destination === 'algebra' ? 'algebra' : 'overview';
+      window.location.assign(`${APP_ROOT}/i/${encodeURIComponent(access.institutionSlug)}/admin/${destination}`);
     } else if (form.id === 'platform-branding-form') {
       const response = await api('platform-institutions', {method: 'POST', body: new FormData(form)});
       state.institutions = (await api('platform-institutions')).items || [];
@@ -2557,6 +2585,12 @@ async function handleAction(button) {
     const institution = (state.institutions || []).find(item => String(item.id) === String(id));
     if (!institution) return toast('Institution details are no longer available. Refresh and try again.', 'error');
     return supportAccessForm(institution);
+  }
+  if (action === 'open-algebra-institution') {
+    if (!isPlatformSuperAdmin() || TENANT_SLUG) return toast('Open tenant Algebra from the platform workspace.', 'error');
+    const institution = (state.institutions || []).find(item => String(item.id) === String(id) && item.active);
+    if (!institution) return toast('This institution is unavailable. Refresh and try again.', 'error');
+    return supportAccessForm(institution, 'algebra');
   }
   if (action === 'end-support-access') {
     const supportAccessId = String(button.dataset.id || '');
